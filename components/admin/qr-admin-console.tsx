@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Activity, BarChart3, CalendarDays, Database, Download, RefreshCw, Search, Trash2, Users } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { QrEntryStateBadge, QrScanDetailsDialog, QrStudentAvatar, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
 import type { QrBiometricApiResponse, QrBiometricReading } from "@/types/qr-biometric"
 
 type Mode = "dashboard" | "logs" | "analytics"
@@ -85,10 +86,6 @@ function formatDate(value: string | null | undefined) {
   })
 }
 
-function studentName(reading: QrBiometricReading) {
-  return reading.studentInfo?.fullName ?? reading.studentInfo?.enrollmentNo ?? "Unknown student"
-}
-
 function exportHref(month: string, from: string, to: string) {
   const params = new URLSearchParams()
   if (month) params.set("month", month)
@@ -104,6 +101,21 @@ function StatCard({ label, value, caption }: { label: string; value: number | st
       <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
       <p className="mt-2 font-mono text-3xl font-semibold text-orange-100">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
+    </div>
+  )
+}
+
+function AdminStudentSummary({ reading, avatarSize = "sm" }: { reading: QrBiometricReading; avatarSize?: "sm" | "lg" }) {
+  const info = reading.studentInfo
+
+  return (
+    <div className="flex min-w-[280px] items-center gap-3">
+      <QrStudentAvatar reading={reading} size={avatarSize} />
+      <div className="min-w-0 space-y-1">
+        <p className="truncate font-semibold text-foreground">{qrStudentDisplayName(reading)}</p>
+        <p className="text-xs text-muted-foreground">Enrollment: <span className="font-mono text-foreground">{info?.enrollmentNo ?? "--"}</span></p>
+        <p className="truncate text-xs text-muted-foreground">Email: <span className="font-mono text-foreground">{info?.emailId ?? "--"}</span></p>
+      </div>
     </div>
   )
 }
@@ -213,12 +225,21 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
           </div>
           {data.latest ? (
             <div className="mt-5 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${data.latest.entryState === "IN" ? "border-emerald-500/35 text-emerald-300" : "border-red-500/35 text-red-300"}`}>{data.latest.entryState}</span>
-                <span className="font-mono text-xs text-muted-foreground">{data.latest.deviceId}</span>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <QrEntryStateBadge state={data.latest.entryState} />
+                    <span className="font-mono text-xs text-muted-foreground">{data.latest.deviceId}</span>
+                  </div>
+                  <div className="mt-4">
+                    <AdminStudentSummary reading={data.latest} avatarSize="lg" />
+                  </div>
+                  <p className="mt-2 font-mono text-xs text-muted-foreground">{formatDate(data.latest.timestamp)}</p>
+                  <div className="mt-4">
+                    <QrScanDetailsDialog reading={data.latest} />
+                  </div>
+                </div>
               </div>
-              <p className="mt-3 text-xl font-semibold">{studentName(data.latest)}</p>
-              <p className="mt-1 font-mono text-xs text-muted-foreground">{formatDate(data.latest.timestamp)}</p>
             </div>
           ) : (
             <p className="mt-5 rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">No scan received yet.</p>
@@ -277,7 +298,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
                   <th className="px-4 py-3 text-left font-medium">Student</th>
                   <th className="px-4 py-3 text-left font-medium">Device</th>
                   <th className="px-4 py-3 text-left font-medium">Time</th>
-                  <th className="px-4 py-3 text-right font-medium">Action</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -285,11 +306,16 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
                   <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No logs found.</td></tr>
                 ) : data.readings.map((reading) => (
                   <tr key={reading.id} className="border-b border-border/60 hover:bg-muted/20">
-                    <td className="px-4 py-3"><span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${reading.entryState === "IN" ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300" : "border-red-500/35 bg-red-500/10 text-red-300"}`}>{reading.entryState}</span></td>
-                    <td className="max-w-[460px] px-4 py-3"><p className="font-medium">{studentName(reading)}</p><p className="line-clamp-1 break-all font-mono text-xs text-muted-foreground">{reading.studentInfo?.enrollmentNo ?? reading.decodedUrl ?? reading.decodedData}</p></td>
+                    <td className="px-4 py-3"><QrEntryStateBadge state={reading.entryState} /></td>
+                    <td className="max-w-[460px] px-4 py-3"><AdminStudentSummary reading={reading} /></td>
                     <td className="px-4 py-3 font-mono text-xs">{reading.deviceId}</td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{formatDate(reading.timestamp)}</td>
-                    <td className="px-4 py-3 text-right"><Button variant="destructive" size="sm" onClick={() => void deleteReading(reading.id)}><Trash2 className="h-3.5 w-3.5" />Delete</Button></td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
+                        <QrScanDetailsDialog reading={reading} />
+                        <Button variant="destructive" size="sm" onClick={() => void deleteReading(reading.id)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

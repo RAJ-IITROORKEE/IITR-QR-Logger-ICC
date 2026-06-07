@@ -95,6 +95,30 @@ export function addDoswStudentPhotoFallback(info: QrStudentInfo): QrStudentInfo 
   return fallbackPhotoUrl ? { ...info, photoUrl: fallbackPhotoUrl } : info
 }
 
+export function normalizeDoswStudentPhotoUrl(photoUrl: string | undefined): string | null {
+  if (!photoUrl) return null
+
+  try {
+    const url = new URL(decodeHtmlEntities(photoUrl.trim()))
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "")
+    const pathname = url.pathname.toLowerCase()
+    if (hostname !== "dosw.iitr.ac.in" || pathname !== "/getimagehandler.ashx") return null
+    if (!url.searchParams.get("enrollment") || url.searchParams.get("type")?.toLowerCase() !== "photo") return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+export function buildQrStudentPhotoProxySrc(photoUrl: string | undefined, enrollmentNo?: string, profileUrl?: string | null): string | undefined {
+  const normalized = normalizeDoswStudentPhotoUrl(photoUrl) ?? normalizeDoswStudentPhotoUrl(buildDoswStudentPhotoUrl(enrollmentNo))
+  if (!normalized) return undefined
+
+  const params = new URLSearchParams({ src: normalized })
+  if (profileUrl && isDoswStudentUrl(profileUrl)) params.set("profile", profileUrl)
+  return `/api/qr-biometric-icc/student-photo?${params.toString()}`
+}
+
 export function normalizeDecodedUrl(decodedData: string): string | null {
   try {
     const url = new URL(decodedData.trim())

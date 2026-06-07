@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowUpRight, QrCode } from "lucide-react"
+import { LockKeyhole, QrCode } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -27,7 +27,7 @@ export function SiteNavbar() {
           <Button asChild size="sm" className="ml-1 h-9 bg-orange-500 text-black hover:bg-orange-400">
             <Link href="/admin/login" className="inline-flex items-center gap-1.5">
               Admin
-              <ArrowUpRight className="h-3.5 w-3.5" />
+              <LockKeyhole className="h-3.5 w-3.5" />
             </Link>
           </Button>
         </nav>
