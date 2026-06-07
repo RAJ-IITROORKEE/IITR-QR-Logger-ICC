@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { addDoswStudentPhotoFallback, extractStudentInfo, isDoswStudentUrl, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
 import type { QrBiometricReading, QrEntryState, QrStudentInfo, QrStudentInfoStatus } from "@/types/qr-biometric"
@@ -439,7 +440,11 @@ export async function GET(request: Request) {
   })
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
+  if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) {
+    return NextResponse.json({ success: false, module: "qr-biometric", error: "Unauthorized" }, { status: 401 })
+  }
+
   const body = (await request.json().catch(() => null)) as { id?: string; clearAll?: boolean; deviceId?: string; from?: string; to?: string; month?: string } | null
   if (!body?.clearAll && !body?.id) return NextResponse.json({ success: false, error: "Missing reading id or clearAll flag" }, { status: 400 })
 

@@ -52,7 +52,7 @@ export default function SupportPage() {
           </div>
           <h1 className="mt-6 text-4xl font-semibold tracking-tight">Support</h1>
           <p className="mt-4 text-sm leading-6 text-muted-foreground">
-            Raise an issue, enquiry, or operational request for the QR-BIOMETRIC-CC system. Submissions are routed to the admin support inbox for review and follow-up.
+            Raise an issue, enquiry, or operational request for the QR LOGGER ICC system. Submissions are routed to the admin support inbox for review and follow-up.
           </p>
           <div className="mt-8 grid gap-3">
             {[

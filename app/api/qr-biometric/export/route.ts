@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { prisma } from "@/lib/prisma"
 import { normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 
@@ -36,7 +37,11 @@ function readStudentInfo(value: unknown): Record<string, string> {
   return output
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) {
+    return NextResponse.json({ success: false, module: "qr-biometric", error: "Unauthorized" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const deviceId = searchParams.get("deviceId")?.trim()
   const monthRange = parseMonthRange(searchParams.get("month"))

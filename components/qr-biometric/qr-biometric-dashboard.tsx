@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Activity, Database, Download, QrCode, RefreshCw, Search, ShieldCheck, Users, Wifi, WifiOff } from "lucide-react"
+import { Activity, Database, Headphones, QrCode, RefreshCw, Search, ShieldCheck, Users, Wifi, WifiOff } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -128,7 +128,7 @@ export function QrBiometricDashboard() {
             Live ICC Logger
           </div>
           <h1 className="mt-6 max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            QRBiometric Student Entry/Exit Dashboard
+            QR Logger ICC Student Entry/Exit Dashboard
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground">
             Dedicated real-time QR biometric logging interface for ICC, IIT Roorkee with device health, scan status, daily activity, and admin-ready log visibility.
@@ -139,9 +139,9 @@ export function QrBiometricDashboard() {
               Refresh feed
             </Button>
             <Button asChild variant="outline">
-              <a href="/api/qr-biometric/export">
-                <Download className="h-4 w-4" />
-                Export CSV
+              <a href="/support">
+                <Headphones className="h-4 w-4" />
+                Support
               </a>
             </Button>
           </div>
@@ -150,7 +150,7 @@ export function QrBiometricDashboard() {
         <div className="overflow-hidden rounded-3xl border border-orange-500/40 bg-[#120b07] p-5 shadow-[0_0_0_1px_rgba(251,146,60,0.18),0_24px_52px_-28px_rgba(249,115,22,0.72)]">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-orange-100/85">QRBiometric OLED Feed</p>
+              <p className="text-xs uppercase tracking-[0.28em] text-orange-100/85">QR Logger ICC OLED Feed</p>
               <p className="mt-1 text-xs text-orange-100/60">Latest verified scan event</p>
             </div>
             <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${online ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200" : "border-red-300/40 bg-red-300/10 text-red-200"}`}>

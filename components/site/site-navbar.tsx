@@ -12,7 +12,7 @@ export function SiteNavbar() {
             <QrCode className="h-5 w-5" />
           </span>
           <span className="leading-tight">
-            <span className="block text-sm font-semibold tracking-tight sm:text-base">QR-BIOMETRIC-CC</span>
+            <span className="block text-sm font-semibold tracking-tight sm:text-base">QR LOGGER ICC</span>
             <span className="hidden text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:block">ICC IIT Roorkee</span>
           </span>
         </Link>
@@ -25,7 +25,7 @@ export function SiteNavbar() {
             Support
           </Link>
           <Button asChild size="sm" className="ml-1 h-9 bg-orange-500 text-black hover:bg-orange-400">
-            <Link href="/admin" className="inline-flex items-center gap-1.5">
+            <Link href="/admin/login" className="inline-flex items-center gap-1.5">
               Admin
               <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>

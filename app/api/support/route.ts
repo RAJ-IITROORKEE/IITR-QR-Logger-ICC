@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { prisma } from "@/lib/prisma"
 import type { SupportInquiry, SupportStatus } from "@/types/support"
 
@@ -52,6 +53,10 @@ function toApiInquiry(record: {
   }
 }
 
+function requireAdmin(request: NextRequest) {
+  return verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   const name = typeof body?.name === "string" ? body.name.trim() : ""
@@ -71,7 +76,9 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  if (!requireAdmin(request)) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
+
   const { searchParams } = new URL(request.url)
   const page = parsePage(searchParams.get("page"))
   const limit = parseLimit(searchParams.get("limit"))
@@ -122,7 +129,9 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH(request: NextRequest) {
+  if (!requireAdmin(request)) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
+
   const body = await request.json().catch(() => null)
   const id = typeof body?.id === "string" ? body.id.trim() : ""
   const status = parseStatus(typeof body?.status === "string" ? body.status : null)
@@ -137,7 +146,9 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
+  if (!requireAdmin(request)) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
+
   const body = await request.json().catch(() => null)
   const id = typeof body?.id === "string" ? body.id.trim() : ""
   if (!id) return NextResponse.json({ success: false, module: "support", error: "Missing support inquiry id" }, { status: 400 })

@@ -19,10 +19,10 @@ export default function AboutPage() {
             ICC Implementation
           </div>
           <h1 className="mt-6 max-w-4xl text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-            About QR-BIOMETRIC-CC
+            About QR LOGGER ICC
           </h1>
           <p className="mt-5 max-w-3xl text-base leading-7 text-muted-foreground sm:text-lg">
-            QR-BIOMETRIC-CC is a dedicated QR biometric logger system implemented in ICC (Institute Computer Center), IIT Roorkee. It is designed to make student scan activity visible, organized, and exportable through a focused dashboard experience.
+            QR LOGGER ICC is a dedicated QR biometric logger system implemented in ICC (Institute Computer Center), IIT Roorkee. It is designed to make student scan activity visible, organized, and exportable through a focused dashboard experience.
           </p>
         </section>
 
@@ -67,6 +67,7 @@ export default function AboutPage() {
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-orange-300">Designed and Developed by</p>
                 <h3 className="mt-1 text-lg font-semibold">RAJ RABIDAS</h3>
+                <p className="text-sm font-medium text-orange-300">PowerGrid Centre of Excellence</p>
                 <p className="text-sm text-muted-foreground">B.Tech 3rd Year, IIT Roorkee</p>
               </div>
             </div>
