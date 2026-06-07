@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
@@ -9,7 +10,6 @@ import {
   LayoutDashboard,
   LogOut,
   Logs,
-  QrCode,
   Settings,
   ShieldCheck,
   type LucideIcon,
@@ -160,8 +160,8 @@ function AdminAppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton asChild size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               <Link href="/admin">
-                <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-orange-500 text-black">
-                  <QrCode className="size-4" />
+                <span className="flex aspect-square size-9 items-center justify-center">
+                  <Image src="/logo.png" alt="QR LOGGER ICC logo" width={36} height={36} className="size-9 object-contain" />
                 </span>
                 <span className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">QR LOGGER ICC</span>

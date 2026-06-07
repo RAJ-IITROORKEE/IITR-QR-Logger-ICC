@@ -19,6 +19,11 @@ export const metadata: Metadata = {
   title: "QR LOGGER ICC | IIT Roorkee",
   description:
     "Dedicated QR biometric student logging dashboard implemented at ICC, IIT Roorkee.",
+  icons: {
+    icon: [{ url: "/favicon.png", type: "image/png" }],
+    shortcut: [{ url: "/favicon.png", type: "image/png" }],
+    apple: [{ url: "/logo.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({

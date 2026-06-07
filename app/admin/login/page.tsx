@@ -1,8 +1,9 @@
 "use client"
 
+import Image from "next/image"
 import { FormEvent, useState } from "react"
 import { useRouter } from "next/navigation"
-import { LockKeyhole, QrCode, ShieldCheck } from "lucide-react"
+import { LockKeyhole, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -44,8 +45,8 @@ export default function AdminLoginPage() {
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-3 text-center">
-          <span className="flex size-12 items-center justify-center rounded-2xl bg-orange-500 text-black shadow-lg shadow-orange-950/30">
-            <QrCode className="size-6" />
+          <span className="flex size-16 items-center justify-center">
+            <Image src="/logo.png" alt="QR LOGGER ICC logo" width={64} height={64} className="size-16 object-contain" priority />
           </span>
           <div className="text-left">
             <p className="text-xs uppercase tracking-[0.22em] text-orange-300">ICC IIT Roorkee</p>

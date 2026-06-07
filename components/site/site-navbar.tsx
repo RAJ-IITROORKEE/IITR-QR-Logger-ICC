@@ -1,5 +1,6 @@
+import Image from "next/image"
 import Link from "next/link"
-import { LockKeyhole, QrCode } from "lucide-react"
+import { LockKeyhole } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -8,8 +9,8 @@ export function SiteNavbar() {
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background/85 backdrop-blur-xl">
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href="/" className="inline-flex items-center gap-2 rounded-xl px-1 py-1 transition hover:bg-muted/40">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-orange-500/30 bg-orange-500/10 text-orange-300">
-            <QrCode className="h-5 w-5" />
+          <span className="flex size-10 items-center justify-center">
+            <Image src="/logo.png" alt="QR LOGGER ICC logo" width={40} height={40} className="size-10 object-contain" priority />
           </span>
           <span className="leading-tight">
             <span className="block text-sm font-semibold tracking-tight sm:text-base">QR LOGGER ICC</span>
