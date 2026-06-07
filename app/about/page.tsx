@@ -58,36 +58,71 @@ export default function AboutPage() {
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-orange-500/20 bg-orange-500/5 p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-orange-500/30 bg-orange-500/10 text-lg font-bold text-orange-300">
-                RR
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-orange-300">Designed and Developed by</p>
-                <h3 className="mt-1 text-lg font-semibold">RAJ RABIDAS</h3>
-                <p className="text-sm font-medium text-orange-300">PowerGrid Centre of Excellence</p>
-                <p className="text-sm text-muted-foreground">B.Tech 3rd Year, IIT Roorkee</p>
-              </div>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-muted-foreground">
-              Department of Metallurgical and Materials Engineering, Indian Institute of Technology Roorkee.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-border bg-card/75 p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-muted text-orange-300">
-                <GraduationCap className="h-7 w-7" />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Mentor / Supervisor</p>
-                <h3 className="mt-1 text-lg font-semibold">Prof. Rahul Thakur</h3>
-                <p className="text-sm text-muted-foreground">Department of CSE, IIT Roorkee</p>
-              </div>
-            </div>
-          </div>
-        </section>
+        <section className="grid gap-5 md:grid-cols-2">
+  {/* Developer Card */}
+  <div className="relative overflow-hidden rounded-3xl border border-orange-500/20 bg-gradient-to-br from-orange-500/10 via-card/80 to-card p-6 shadow-xl shadow-orange-950/20">
+    <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-orange-500/10 blur-3xl" />
+
+    <div className="relative flex items-start gap-5">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-orange-500/30 bg-orange-500/10 text-xl font-bold tracking-wide text-orange-300 shadow-inner shadow-orange-950/30">
+        RR
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-300">
+          Designed & Developed by
+        </p>
+
+        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+          RAJ RABIDAS
+        </h3>
+
+        <p className="mt-1 text-sm font-medium text-orange-300">
+          PowerGrid Centre of Excellence
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          B.Tech 3rd Year, Department of Metallurgical and Materials Engineering,
+          Indian Institute of Technology Roorkee.
+        </p>
+      </div>
+    </div>
+
+   
+  </div>
+
+  {/* Mentor / Supervisor Card */}
+  <div className="relative overflow-hidden rounded-3xl border border-border bg-card/75 p-6 shadow-xl shadow-orange-950/10">
+    <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-orange-500/5 blur-3xl" />
+
+    <div className="relative flex items-start gap-5">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-orange-500/25 bg-orange-500/10 text-orange-300 shadow-inner shadow-orange-950/20">
+        <GraduationCap className="h-8 w-8" />
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+          Mentor / Project Supervisor
+        </p>
+
+        <h3 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+          Prof. Rahul Thakur
+        </h3>
+
+        <p className="mt-1 text-sm font-medium text-orange-300">
+          Department of Computer Science and Engineering
+        </p>
+
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Indian Institute of Technology Roorkee
+        </p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+
       </main>
     </PublicShell>
   )
