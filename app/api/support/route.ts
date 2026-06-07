@@ -38,13 +38,15 @@ function toApiInquiry(record: {
   createdAt: Date
   updatedAt: Date
 }): SupportInquiry {
+  const status = parseStatus(record.status)
+
   return {
     id: record.id,
     name: record.name,
     email: record.email,
     subject: record.subject,
     message: record.message,
-    status: parseStatus(record.status) === "all" ? "new" : parseStatus(record.status),
+    status: status === "all" ? "new" : status,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }

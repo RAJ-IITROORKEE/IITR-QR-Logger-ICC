@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Activity, Database, Download, QrCode, RefreshCw, Search, ShieldCheck, Users, Wifi, WifiOff } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -87,6 +88,8 @@ function studentName(reading: QrReading | null) {
   if (!reading) return "Waiting for first scan"
   return reading.studentInfo?.fullName ?? reading.studentInfo?.enrollmentNo ?? "Student QR captured"
 }
+
+type StatCardConfig = [LucideIcon, string, number, string]
 
 export function QrBiometricDashboard() {
   const [data, setData] = useState<QrApiResponse>(emptyData)
@@ -188,12 +191,12 @@ export function QrBiometricDashboard() {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[
+        {([
           [Activity, "Daily Logs", data.stats.dailyScans ?? 0, "Scans captured today"],
           [Database, "Monthly Logs", data.stats.monthlyScans ?? 0, "Current month total"],
           [Users, "Students Inside", data.stats.currentIn, "Latest IN state count"],
           [ShieldCheck, "Profiles", data.stats.scrapedStudents, "Readable student profiles"],
-        ].map(([Icon, label, value, text]) => (
+        ] satisfies StatCardConfig[]).map(([Icon, label, value, text]) => (
           <div key={String(label)} className="rounded-2xl border border-border bg-card/75 p-5">
             <Icon className="h-5 w-5 text-orange-300" />
             <p className="mt-4 text-xs uppercase tracking-[0.18em] text-muted-foreground">{String(label)}</p>

@@ -22,9 +22,26 @@ const emptyData: QrBiometricApiResponse = {
     scrapedStudents: 0,
     dailyScans: 0,
     monthlyScans: 0,
+    lastScanAt: null,
+    avgCharacters: null,
   },
   analysis: {
-    devices: [],
+    totalScans: 0,
+    uniqueCodes: 0,
+    uniqueDevices: 0,
+    currentIn: 0,
+    currentOut: 0,
+    scrapedStudents: 0,
+    dailyScans: 0,
+    monthlyScans: 0,
+    lastScanAt: null,
+    avgCharacters: null,
+    latestDecodedData: null,
+    latestDeviceId: null,
+    latestStatus: null,
+    latestEntryState: null,
+    latestStudentInfo: null,
+    deviceSummaries: [],
     entryTimeline: [],
   },
   pagination: {
@@ -33,17 +50,28 @@ const emptyData: QrBiometricApiResponse = {
     total: 0,
     totalPages: 1,
     hasNextPage: false,
-    hasPreviousPage: false,
+    hasPrevPage: false,
   },
   health: {
     status: "offline",
     lastSeenSeconds: null,
   },
   system: {
-    activeDevices: 0,
-    pendingWrites: 0,
-    liveBufferSize: 0,
+    dbConnected: false,
+    queuedWrites: 0,
+    flushedWrites: 0,
+    liveBufferCount: 0,
   },
+  success: true,
+  module: "qr-biometric",
+  endpoint: "/api/qr-biometric",
+  storage: "memory",
+  expectedPayload: { deviceId: "", decodedData: "" },
+  query: { limit: 25, page: 1, deviceId: null, search: null, sort: "createdAt", order: "desc", from: null, to: null, month: null },
+  count: 0,
+  totalCount: 0,
+  serverTime: new Date(0).toISOString(),
+  warning: null,
 }
 
 function formatDate(value: string | null | undefined) {
@@ -206,9 +234,9 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
             </div>
           </div>
           <div className="mt-5 grid grid-cols-3 gap-3">
-            <StatCard label="Active" value={data.system.activeDevices} caption="devices" />
-            <StatCard label="Buffer" value={data.system.liveBufferSize} caption="memory logs" />
-            <StatCard label="Pending" value={data.system.pendingWrites} caption="DB writes" />
+            <StatCard label="DB" value={data.system.dbConnected ? "OK" : "OFF"} caption="connection" />
+            <StatCard label="Buffer" value={data.system.liveBufferCount} caption="memory logs" />
+            <StatCard label="Queued" value={data.system.queuedWrites} caption="DB writes" />
           </div>
         </div>
       </section>
@@ -270,7 +298,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
           <div className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-muted-foreground">
             <span>Page {data.pagination.page} of {data.pagination.totalPages} | {data.pagination.total} records</span>
             <div className="flex gap-2">
-              <Button variant="outline" disabled={!data.pagination.hasPreviousPage} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button>
+              <Button variant="outline" disabled={!data.pagination.hasPrevPage} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button>
               <Button variant="outline" disabled={!data.pagination.hasNextPage} onClick={() => setPage((value) => value + 1)}>Next</Button>
             </div>
           </div>
@@ -282,10 +310,10 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
           <div className="rounded-3xl border border-border bg-card/75 p-5">
             <div className="flex items-center gap-3"><BarChart3 className="h-5 w-5 text-orange-300" /><h3 className="font-semibold">Device Distribution</h3></div>
             <div className="mt-5 space-y-3">
-              {data.analysis.devices.length === 0 ? <p className="text-sm text-muted-foreground">No device data yet.</p> : data.analysis.devices.map((device) => (
+              {data.analysis.deviceSummaries.length === 0 ? <p className="text-sm text-muted-foreground">No device data yet.</p> : data.analysis.deviceSummaries.map((device) => (
                 <div key={device.deviceId}>
-                  <div className="mb-1 flex justify-between text-xs"><span>{device.deviceId}</span><span>{device.scans} scans</span></div>
-                  <div className="h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-orange-500" style={{ width: `${Math.min(100, (device.scans / Math.max(1, data.stats.totalScans)) * 100)}%` }} /></div>
+                  <div className="mb-1 flex justify-between text-xs"><span>{device.deviceId}</span><span>{device.totalScans} scans</span></div>
+                  <div className="h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-orange-500" style={{ width: `${Math.min(100, (device.totalScans / Math.max(1, data.stats.totalScans)) * 100)}%` }} /></div>
                 </div>
               ))}
             </div>
@@ -296,7 +324,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
               {data.analysis.entryTimeline.length === 0 ? <p className="text-sm text-muted-foreground">No timeline data yet.</p> : data.analysis.entryTimeline.map((item) => (
                 <div key={item.date} className="rounded-xl border border-border bg-background/50 p-3">
                   <div className="flex items-center justify-between text-sm"><span className="font-mono">{item.date}</span><span>{item.total} total</span></div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground"><span>IN: {item.in}</span><span>OUT: {item.out}</span></div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground"><span>IN: {item.inCount}</span><span>OUT: {item.outCount}</span></div>
                 </div>
               ))}
             </div>

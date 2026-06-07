@@ -1,3 +1,5 @@
+"use client"
+
 import Link from "next/link"
 import { BarChart3, Headphones, Home, Logs, QrCode } from "lucide-react"
 

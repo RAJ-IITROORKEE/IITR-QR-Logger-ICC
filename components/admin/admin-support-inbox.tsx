@@ -7,6 +7,16 @@ import { Button } from "@/components/ui/button"
 import type { SupportInquiry, SupportListResponse, SupportStatus } from "@/types/support"
 
 const emptyData: SupportListResponse = {
+  success: true,
+  module: "support",
+  query: {
+    page: 1,
+    limit: 20,
+    search: null,
+    status: "all",
+  },
+  count: 0,
+  totalCount: 0,
   inquiries: [],
   stats: {
     total: 0,
@@ -19,7 +29,10 @@ const emptyData: SupportListResponse = {
     limit: 20,
     total: 0,
     totalPages: 1,
+    hasNextPage: false,
+    hasPrevPage: false,
   },
+  serverTime: new Date(0).toISOString(),
 }
 
 function formatDate(value: string) {
@@ -29,7 +42,7 @@ function formatDate(value: string) {
 function StatusBadge({ status }: { status: SupportStatus }) {
   const className = status === "resolved"
     ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
-    : status === "in_progress"
+    : status === "in-progress"
       ? "border-orange-500/35 bg-orange-500/10 text-orange-300"
       : "border-sky-500/35 bg-sky-500/10 text-sky-300"
   return <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{status.replace("_", " ")}</span>
@@ -112,7 +125,7 @@ export function AdminSupportInbox() {
             <select value={status} onChange={(event) => { setStatus(event.target.value as SupportStatus | "all"); setPage(1) }} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500">
               <option value="all">All</option>
               <option value="new">New</option>
-              <option value="in_progress">In progress</option>
+              <option value="in-progress">In progress</option>
               <option value="resolved">Resolved</option>
             </select>
             <Button onClick={() => { setPage(1); setLoading(true); void fetchData() }}>Apply</Button>
@@ -132,7 +145,7 @@ export function AdminSupportInbox() {
                   <p className="mt-3 max-w-4xl text-sm leading-6 text-foreground/85">{inquiry.message}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={() => void updateStatus(inquiry, "in_progress")}>Mark active</Button>
+                  <Button variant="outline" size="sm" onClick={() => void updateStatus(inquiry, "in-progress")}>Mark active</Button>
                   <Button size="sm" onClick={() => void updateStatus(inquiry, "resolved")}>Resolve</Button>
                   <Button variant="destructive" size="sm" onClick={() => void deleteInquiry(inquiry.id)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
                 </div>
