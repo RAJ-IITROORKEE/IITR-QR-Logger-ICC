@@ -63,8 +63,8 @@ const emptyData: QrBiometricApiResponse = {
     liveBufferCount: 0,
   },
   success: true,
-  module: "qr-biometric",
-  endpoint: "/api/qr-biometric",
+  module: "qr-biometric-icc",
+  endpoint: "/api/qr-biometric-icc",
   storage: "memory",
   expectedPayload: { deviceId: "", decodedData: "" },
   query: { limit: 25, page: 1, deviceId: null, search: null, sort: "createdAt", order: "desc", from: null, to: null, month: null },
@@ -95,7 +95,7 @@ function exportHref(month: string, from: string, to: string) {
   if (from) params.set("from", from)
   if (to) params.set("to", to)
   const query = params.toString()
-  return `/api/qr-biometric/export${query ? `?${query}` : ""}`
+  return `/api/qr-biometric-icc/export${query ? `?${query}` : ""}`
 }
 
 function StatCard({ label, value, caption }: { label: string; value: number | string; caption: string }) {
@@ -127,7 +127,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
       if (month) params.set("month", month)
       if (from) params.set("from", from)
       if (to) params.set("to", to)
-      const response = await fetch(`/api/qr-biometric?${params.toString()}`, { cache: "no-store" })
+      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store" })
       if (!response.ok) return
       setData((await response.json()) as QrBiometricApiResponse)
     } finally {
@@ -143,7 +143,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
 
   async function deleteReading(id: string) {
     if (!window.confirm("Delete this QR log?")) return
-    await fetch("/api/qr-biometric", {
+    await fetch("/api/qr-biometric-icc", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
@@ -154,7 +154,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
   async function clearScopedLogs() {
     const label = month || from || to ? "selected timeline" : "all QR logs"
     if (!window.confirm(`Clear ${label}? This cannot be undone.`)) return
-    await fetch("/api/qr-biometric", {
+    await fetch("/api/qr-biometric-icc", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ clearAll: true, month: month || undefined, from: from || undefined, to: to || undefined }),

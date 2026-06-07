@@ -3,7 +3,7 @@ import type { QrBiometricApiResponse } from "@/types/qr-biometric"
 export async function fetchQrBiometricData(limit = 20): Promise<QrBiometricApiResponse | null> {
   try {
     const base = typeof window !== "undefined" ? "" : process.env.NEXT_PUBLIC_APP_URL ?? ""
-    const response = await fetch(`${base}/api/qr-biometric?limit=${limit}`, { cache: "no-store" })
+    const response = await fetch(`${base}/api/qr-biometric-icc?limit=${limit}`, { cache: "no-store" })
     if (!response.ok) return null
     return (await response.json()) as QrBiometricApiResponse
   } catch {

@@ -100,7 +100,7 @@ export function QrBiometricDashboard() {
     try {
       const params = new URLSearchParams({ limit: "12" })
       if (search.trim()) params.set("search", search.trim())
-      const response = await fetch(`/api/qr-biometric?${params.toString()}`, { cache: "no-store" })
+      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store" })
       if (!response.ok) return
       const result = (await response.json()) as QrApiResponse
       setData(result)

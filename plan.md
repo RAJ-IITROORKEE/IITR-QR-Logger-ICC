@@ -12,7 +12,7 @@ Build a production-level QR biometric logger dashboard for ICC, IIT Roorkee. The
 - Support page with enquiry/issue submission.
 - Admin dashboard with daily/monthly stats, logs data table, analytics, support inbox, sorting, searching, delete/clear actions, and CSV export.
 - MongoDB persistence through Prisma.
-- Device-compatible API endpoint for `POST /api/qr-biometric` using the same payload shape as the reference implementation.
+- Device-compatible API endpoint for `POST /api/qr-biometric-icc` using the same payload shape as the reference implementation plus a generated device API key.
 
 ## Backend Model
 
@@ -22,10 +22,10 @@ Build a production-level QR biometric logger dashboard for ICC, IIT Roorkee. The
 
 ## API Plan
 
-- `POST /api/qr-biometric`: receive device QR scans, validate DOSW StudentProxy QR URLs, resolve IN/OUT state, scrape student profile metadata, persist logs, and return device-friendly JSON.
-- `GET /api/qr-biometric`: provide paginated logs, search, sorting, daily/monthly stats, analytics, and health data.
-- `DELETE /api/qr-biometric`: delete a single reading or clear scoped readings.
-- `GET /api/qr-biometric/export`: export logs as CSV by month or arbitrary date range.
+- `POST /api/qr-biometric-icc`: receive device QR scans, validate the generated API key, validate DOSW StudentProxy QR URLs, resolve IN/OUT state, scrape student profile metadata, persist logs, and return device-friendly JSON.
+- `GET /api/qr-biometric-icc`: provide paginated logs, search, sorting, daily/monthly stats, analytics, and health data.
+- `DELETE /api/qr-biometric-icc`: delete a single reading or clear scoped readings.
+- `GET /api/qr-biometric-icc/export`: export logs as CSV by month or arbitrary date range.
 - `POST /api/support`: create support inquiry.
 - `GET /api/support`: list support inquiries with search/status filters.
 - `PATCH /api/support`: update support inquiry status.

@@ -39,7 +39,7 @@ function readStudentInfo(value: unknown): Record<string, string> {
 
 export async function GET(request: NextRequest) {
   if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) {
-    return NextResponse.json({ success: false, module: "qr-biometric", error: "Unauthorized" }, { status: 401 })
+    return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Unauthorized" }, { status: 401 })
   }
 
   const { searchParams } = new URL(request.url)

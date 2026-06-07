@@ -9,7 +9,7 @@ export function SiteFooter() {
         <span className="hidden sm:block" />
         <p className="justify-self-center">
           QR LOGGER ICC | ICC, IIT Roorkee | Designed and Developed by{" "}
-          <Link href="https://rajrabidas.me" target="_blank" rel="noreferrer" className="font-medium text-orange-500 transition-colors hover:text-orange-400 dark:text-orange-300 dark:hover:text-orange-200">
+          <Link href="https://rajrabidas.me" target="_blank" rel="noreferrer" className="font-medium transition-colors hover:text-primary">
             Raj Rabidas
           </Link>{" "}
           | PowerGrid Centre of Excellence

@@ -10,6 +10,7 @@ import {
   LogOut,
   Logs,
   QrCode,
+  Settings,
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react"
@@ -63,6 +64,7 @@ const primaryLinks: NavItem[] = [
   { href: "/admin/logs", label: "Logs", description: "Search, sort, delete, and clear records", icon: Logs },
   { href: "/admin/analytics", label: "Analytics", description: "Device summaries and entry timelines", icon: BarChart3 },
   { href: "/admin/support", label: "Support", description: "User issues and enquiries", icon: Headphones },
+  { href: "/admin/settings", label: "Settings", description: "Devices and API endpoint details", icon: Settings },
 ]
 
 const secondaryLinks: NavItem[] = [

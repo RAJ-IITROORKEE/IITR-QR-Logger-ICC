@@ -20,6 +20,9 @@
 # production
 /build
 
+# local hardware sketches
+arduino_code/
+
 # misc
 .DS_Store
 *.pem
