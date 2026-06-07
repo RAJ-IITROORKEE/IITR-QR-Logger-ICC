@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model QrBiometricReading {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId          String
+  decodedData       String
+  scanStatus        String   @default("success")
+  entryState        String   @default("IN")
+  characterCount    Int      @default(0)
+  studentInfo       Json?
+  studentInfoStatus String   @default("not_applicable")
+  studentInfoError  String?
+  createdAt         DateTime @default(now())
+
+  @@index([deviceId, createdAt])
+  @@index([decodedData, createdAt])
+  @@index([createdAt])
+  @@map("qr_biometric_readings")
+}
+
+model SupportInquiry {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String
+  subject   String
+  message   String
+  status    String   @default("new")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("support_inquiries")
+}
+
+model Device {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  deviceNumber String   @unique
+  name         String
+  projectType  String   @default("qr-biometric")
+  ssid         String   @default("hotspot")
+  wifiPassword String   @default("password")
+  firmware     String   @default("v1.0.0")
+  location     String   @default("ICC, IIT Roorkee")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectType, createdAt])
+}
