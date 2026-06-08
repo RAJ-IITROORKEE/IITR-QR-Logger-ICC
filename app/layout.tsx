@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppGridBackground } from "@/components/layout/app-grid-background";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export default function RootLayout({
               <AppGridBackground />
               <div className="relative z-10 flex min-h-screen flex-col">{children}</div>
             </div>
+            <Toaster richColors position="top-center" />
           </TooltipProvider>
         </ThemeProvider>
       </body>

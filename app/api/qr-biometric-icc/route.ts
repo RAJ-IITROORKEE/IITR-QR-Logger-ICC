@@ -19,6 +19,7 @@ const ONLINE_SECONDS = 35
 const STUDENT_PROFILE_TIMEOUT_MS = 8000
 const EXPECTED_QR_PATTERN = "https://dosw.iitr.ac.in/StudentProxy.aspx?id=..."
 const RECEIVER_ENDPOINT = "/api/qr-biometric-icc"
+const MANUAL_DEVICE_ID = "MANUAL"
 
 type DbSaveStatus = "saved" | "queued"
 type SortKey = "createdAt" | "deviceId" | "entryState" | "characterCount"
@@ -75,6 +76,10 @@ function parseMonthRange(value: string | null): { start: Date; end: Date } | nul
 
 function normalizeEntryState(value: unknown): QrEntryState {
   return value === "OUT" ? "OUT" : "IN"
+}
+
+function nextEntryState(state: QrEntryState): QrEntryState {
+  return state === "IN" ? "OUT" : "IN"
 }
 
 function hasUsefulStudentInfo(info: QrStudentInfo): boolean {
@@ -285,6 +290,27 @@ function sortReadings(readings: QrBiometricReading[], sort: SortKey, order: Sort
   })
 }
 
+function normalizeEnrollment(value: string | null) {
+  return value?.replace(/\s+/g, "").toLowerCase() ?? ""
+}
+
+function findReadingByEnrollment(readings: QrBiometricReading[], enrollment: string | null) {
+  const normalized = normalizeEnrollment(enrollment)
+  if (!normalized) return null
+  return readings.find((reading) => normalizeEnrollment(reading.studentInfo?.enrollmentNo ?? null) === normalized) ?? null
+}
+
+async function findStoredReadingByEnrollment(enrollment: string | null) {
+  const normalized = normalizeEnrollment(enrollment)
+  if (!normalized) return null
+
+  const records = await prisma.qrBiometricReading.findMany({
+    orderBy: { createdAt: "desc" },
+    take: MAX_FETCH_LIMIT,
+  })
+  return findReadingByEnrollment(records.map(toApiReading), enrollment)
+}
+
 function paginateReadings(readings: QrBiometricReading[], page: number, limit: number) {
   const total = readings.length
   const totalPages = total === 0 ? 1 : Math.ceil(total / limit)
@@ -339,6 +365,28 @@ async function flushPendingQueue() {
   return { flushed, remaining: pendingWriteQueue.length }
 }
 
+async function saveManualReading(sourceReading: QrBiometricReading, entryState: QrEntryState) {
+  const reading = createReading(MANUAL_DEVICE_ID, sourceReading.decodedData, entryState, {
+    status: sourceReading.studentInfoStatus,
+    info: sourceReading.studentInfo,
+    error: sourceReading.studentInfoError,
+  })
+  pushWithLimit(liveReadingsBuffer, reading, MAX_BUFFER_SIZE)
+
+  await flushPendingQueue().catch(() => null)
+
+  let dbStatus: DbSaveStatus = "saved"
+  try {
+    await saveReadingToDatabase(reading)
+  } catch (error) {
+    dbStatus = "queued"
+    pushWithLimit(pendingWriteQueue, reading, MAX_PENDING_QUEUE)
+    console.error("[qr-biometric] Manual database save unavailable, queued reading", error)
+  }
+
+  return { reading, dbStatus }
+}
+
 function mergeReadings(dbReadings: QrBiometricReading[], liveReadings: QrBiometricReading[]) {
   const deduped = new Map<string, QrBiometricReading>()
   for (const reading of [...liveReadings, ...dbReadings]) {
@@ -357,6 +405,40 @@ function filterLiveReadings(readings: QrBiometricReading[], deviceId: string | n
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+  const manualEnrollment = parseText(body?.manualEnrollment)
+  if (manualEnrollment) {
+    try {
+      const sourceReading = await findStoredReadingByEnrollment(manualEnrollment)
+      if (!sourceReading) {
+        return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "No saved scan found for this enrollment. The student must scan once before manual logging." }, { status: 404 })
+      }
+
+      const requestedEntryState = body?.entryState === "IN" || body?.entryState === "OUT" ? body.entryState : nextEntryState(sourceReading.entryState)
+      const { reading, dbStatus } = await saveManualReading(sourceReading, requestedEntryState)
+
+      return NextResponse.json({
+        success: true,
+        module: "qr-biometric-icc",
+        endpoint: RECEIVER_ENDPOINT,
+        message: dbStatus === "saved" ? "Manual student entry logged and stored" : "Manual student entry logged and queued for database retry",
+        storage: "hybrid-mongodb-buffer",
+        manual: true,
+        deviceId: reading.deviceId,
+        scanStatus: reading.scanStatus,
+        entryState: reading.entryState,
+        previousEntryState: sourceReading.entryState,
+        fullName: reading.studentInfo?.fullName ?? null,
+        enrollmentNo: reading.studentInfo?.enrollmentNo ?? manualEnrollment,
+        studentProfile: { status: reading.studentInfoStatus, error: reading.studentInfoError },
+        persistence: { status: dbStatus, queuedWrites: pendingWriteQueue.length },
+        received: reading,
+      })
+    } catch (error) {
+      console.error("[qr-biometric] Manual logging failed", error)
+      return NextResponse.json({ success: false, module: "qr-biometric-icc", error: error instanceof Error ? error.message : "Manual logging failed" }, { status: 500 })
+    }
+  }
+
   const deviceId = parseText(body?.deviceId)
   const decodedData = parseDecodedData(body)
   const apiKey = parseApiKey(body, request)
@@ -412,6 +494,7 @@ export async function GET(request: Request) {
   const page = parsePositiveInt(searchParams.get("page"), 1, Number.MAX_SAFE_INTEGER)
   const deviceId = parseText(searchParams.get("deviceId"))
   const search = parseText(searchParams.get("search")) ?? ""
+  const manualEnrollment = parseText(searchParams.get("manualEnrollment"))
   const sort = parseSort(searchParams.get("sort"))
   const order = parseOrder(searchParams.get("order"))
   const month = searchParams.get("month")
@@ -447,6 +530,9 @@ export async function GET(request: Request) {
   const analysis = buildAnalysis(merged)
   const stats = buildStats(merged)
   const latest = merged[0] ?? null
+  const manualMatch = findReadingByEnrollment(merged, manualEnrollment)
+  const manualCurrentStatus = manualMatch?.entryState ?? null
+  const manualDefaultEntryState = manualCurrentStatus ? nextEntryState(manualCurrentStatus) : null
   const lastSeenSeconds = latest ? Math.max(0, Math.floor((Date.now() - new Date(latest.timestamp).getTime()) / 1000)) : null
 
   return NextResponse.json({
@@ -459,6 +545,7 @@ export async function GET(request: Request) {
     query: { limit, page: paginated.page, deviceId, search: search || null, sort, order, from: from?.toISOString() ?? null, to: to?.toISOString() ?? null, month },
     count: paginated.items.length,
     totalCount: searched.length,
+    manualLookup: manualEnrollment ? { enrollment: manualEnrollment, found: Boolean(manualMatch), currentStatus: manualCurrentStatus, defaultEntryState: manualDefaultEntryState, reading: manualMatch } : null,
     latest,
     readings: paginated.items,
     analysis,

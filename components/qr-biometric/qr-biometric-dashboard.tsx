@@ -1,11 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { Clock3, Database, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, WifiOff } from "lucide-react"
+import { useCallback, useEffect, useState, type FormEvent } from "react"
+import { CheckCircle2, Clock3, Database, Fingerprint, Loader2, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, WifiOff } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { QrDecodedPayloadLink, QrEntryStateBadge, QrScanDetailsDialog, QrStudentAvatar, QrStudentSummary, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
-import type { QrBiometricReading } from "@/types/qr-biometric"
+import type { QrBiometricReading, QrEntryState } from "@/types/qr-biometric"
 
 interface QrApiResponse {
   latest: QrBiometricReading | null
@@ -24,6 +27,21 @@ interface QrApiResponse {
     status: "online" | "offline"
     lastSeenSeconds: number | null
   }
+  manualLookup?: {
+    enrollment: string
+    found: boolean
+    currentStatus: QrEntryState | null
+    defaultEntryState: QrEntryState | null
+    reading: QrBiometricReading | null
+  } | null
+}
+
+interface QrManualPostResponse {
+  success: boolean
+  error?: string
+  entryState?: QrEntryState
+  previousEntryState?: QrEntryState
+  received?: QrBiometricReading
 }
 
 const emptyData: QrApiResponse = {
@@ -76,6 +94,13 @@ export function QrBiometricDashboard() {
   const [data, setData] = useState<QrApiResponse>(emptyData)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualEnrollment, setManualEnrollment] = useState("")
+  const [manualLoading, setManualLoading] = useState(false)
+  const [manualReading, setManualReading] = useState<QrBiometricReading | null>(null)
+  const [manualPreview, setManualPreview] = useState<QrBiometricReading | null>(null)
+  const [manualCurrentStatus, setManualCurrentStatus] = useState<QrEntryState | null>(null)
+  const [manualEntryState, setManualEntryState] = useState<QrEntryState>("IN")
 
   const fetchData = useCallback(async () => {
     try {
@@ -97,8 +122,96 @@ export function QrBiometricDashboard() {
   }, [fetchData])
 
   const latest = data.latest
+  const featuredReading = manualReading ?? latest
   const online = data.health.status === "online"
-  const latestTime = formatClock(latest?.timestamp)
+  const featuredTime = formatClock(featuredReading?.timestamp)
+  const actualLatestTime = formatClock(latest?.timestamp)
+
+  async function handleManualLookup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const enrollment = manualEnrollment.trim()
+    if (!enrollment) {
+      toast.error("Enter enrollment number")
+      return
+    }
+
+    setManualLoading(true)
+    try {
+      const params = new URLSearchParams({ limit: "12", manualEnrollment: enrollment })
+      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store" })
+      if (!response.ok) throw new Error("Manual lookup failed")
+
+      const result = (await response.json()) as QrApiResponse
+      setData(result)
+
+      const matchedReading = result.manualLookup?.reading ?? null
+      if (!matchedReading) {
+        setManualPreview(null)
+        setManualCurrentStatus(null)
+        toast.error("No saved scan found for this enrollment", {
+          description: "The student must scan QR at least once before manual lookup can work.",
+        })
+        return
+      }
+
+      const currentStatus = result.manualLookup?.currentStatus ?? matchedReading.entryState
+      const defaultEntryState = result.manualLookup?.defaultEntryState ?? (currentStatus === "IN" ? "OUT" : "IN")
+      setManualPreview(matchedReading)
+      setManualCurrentStatus(currentStatus)
+      setManualEntryState(defaultEntryState)
+      toast.success("Student found", {
+        description: `Current status is ${currentStatus}. Default manual mark is ${defaultEntryState}.`,
+      })
+    } catch (error) {
+      toast.error("Could not fetch student record", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      })
+    } finally {
+      setManualLoading(false)
+    }
+  }
+
+  async function handleManualSubmit() {
+    const enrollment = manualEnrollment.trim()
+    if (!enrollment || !manualPreview) {
+      toast.error("Fetch a saved student first")
+      return
+    }
+
+    setManualLoading(true)
+    try {
+      const response = await fetch("/api/qr-biometric-icc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manualEnrollment: enrollment, entryState: manualEntryState }),
+      })
+      const result = (await response.json().catch(() => null)) as QrManualPostResponse | null
+      if (!response.ok || !result?.success || !result.received) throw new Error(result?.error ?? "Manual logging failed")
+
+      setManualReading(result.received)
+      setManualPreview(null)
+      setManualCurrentStatus(result.entryState ?? manualEntryState)
+      setManualOpen(false)
+      setLoading(true)
+      void fetchData()
+      toast.success(`Manual ${result.entryState ?? manualEntryState} marked`, {
+        description: `${qrStudentDisplayName(result.received)} has been added to the logs.`,
+      })
+    } catch (error) {
+      toast.error("Could not mark manual log", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      })
+    } finally {
+      setManualLoading(false)
+    }
+  }
+
+  function openManualDialog() {
+    setManualOpen(true)
+    setManualPreview(null)
+    setManualCurrentStatus(null)
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
@@ -107,21 +220,111 @@ export function QrBiometricDashboard() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">QRBiometric Student Entry/Exit Dashboard</h1>
           <p className="mt-2 text-sm text-muted-foreground md:text-base">Immediate WiFi QR scan events for student logging, decoded-data storage, and verification workflow analysis.</p>
         </div>
-        <Button onClick={() => { setLoading(true); void fetchData() }} disabled={loading} variant="outline" className="gap-2 bg-card/80">
-          <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-          Refresh
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <Button onClick={() => { setLoading(true); setManualReading(null); void fetchData() }} disabled={loading} variant="outline" className="w-full gap-2 bg-card/80 sm:w-auto">
+            <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            Refresh
+          </Button>
+          <Button onClick={openManualDialog} variant="outline" className="w-full gap-2 border-orange-500/40 bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 hover:text-orange-400 sm:w-auto">
+            <Fingerprint className="h-4 w-4" />
+            Manual
+          </Button>
+        </div>
       </section>
+
+      <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+        <DialogContent className="grid max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-orange-500/35 bg-card p-0 shadow-[0_24px_80px_-32px_rgba(249,115,22,0.8)] sm:max-h-[calc(100dvh-2rem)] sm:max-w-xl">
+          <div className="relative border-b border-orange-500/20 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.28),transparent_42%),linear-gradient(135deg,rgba(24,13,6,0.96),rgba(8,8,10,0.96))] p-5 pr-12 text-orange-50 sm:p-6">
+            <div className="mb-4 flex size-12 items-center justify-center rounded-2xl border border-orange-300/30 bg-orange-400/15 shadow-inner">
+              <Fingerprint className="size-6 text-orange-200" />
+            </div>
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-orange-50">Manual student entry</DialogTitle>
+              <DialogDescription className="text-orange-100/72">
+                Find the saved student, confirm their current status, then mark the manual IN/OUT log.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <form onSubmit={handleManualLookup} className="min-h-0 space-y-4 overflow-y-auto p-4 sm:p-6">
+            <div className="rounded-2xl border border-border bg-background/70 p-4">
+              <label htmlFor="manual-enrollment" className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">Enrollment number</label>
+              <Input
+                id="manual-enrollment"
+                value={manualEnrollment}
+                onChange={(event) => setManualEnrollment(event.target.value)}
+                placeholder="Enter enrollment number"
+                autoComplete="off"
+                className="mt-3 h-11 rounded-xl border-orange-500/30 bg-card/80 px-4 font-mono text-base focus-visible:border-orange-500 focus-visible:ring-orange-500/25"
+              />
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">Manual mode uses the saved QR profile from the database. The student must have scanned successfully at least once.</p>
+            </div>
+            {manualPreview ? (
+              <div className="space-y-4 rounded-2xl border border-orange-500/25 bg-orange-500/5 p-4">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <QrStudentAvatar reading={manualPreview} size="lg" />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="truncate text-base font-bold text-foreground sm:text-lg">{qrStudentDisplayName(manualPreview)}</p>
+                    <p className="truncate text-xs text-muted-foreground sm:text-sm">Enrollment: <span className="font-mono text-foreground">{manualPreview.studentInfo?.enrollmentNo ?? manualEnrollment}</span></p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-border bg-background/70 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Current status</p>
+                    <div className="mt-2">{manualCurrentStatus ? <QrEntryStateBadge state={manualCurrentStatus} /> : <span className="text-sm text-muted-foreground">Unknown</span>}</div>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/70 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Update status</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {(["IN", "OUT"] as QrEntryState[]).map((state) => (
+                        <Button
+                          key={state}
+                          type="button"
+                          variant={manualEntryState === state ? "default" : "outline"}
+                          onClick={() => setManualEntryState(state)}
+                          className={manualEntryState === state ? "bg-orange-500 text-white hover:bg-orange-600" : "border-orange-500/30 bg-card/70 text-orange-500 hover:bg-orange-500/10"}
+                        >
+                          {manualEntryState === state && <CheckCircle2 className="h-4 w-4" />}
+                          {state}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-2 rounded-2xl border border-orange-500/20 bg-orange-500/5 p-4 text-xs text-muted-foreground sm:grid-cols-3">
+                <span className="font-semibold text-foreground">1. Find student</span>
+                <span className="font-semibold text-foreground">2. Choose IN/OUT</span>
+                <span className="font-semibold text-foreground">3. Mark log</span>
+              </div>
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => setManualOpen(false)} disabled={manualLoading} className="w-full sm:w-auto">Cancel</Button>
+              {manualPreview && <Button type="button" variant="outline" onClick={() => setManualPreview(null)} disabled={manualLoading} className="w-full sm:w-auto">Change enrollment</Button>}
+              <Button type="submit" disabled={manualLoading} className="w-full gap-2 bg-orange-500 text-white hover:bg-orange-600 sm:w-auto">
+                {manualLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                {manualPreview ? "Refresh student" : "Find student"}
+              </Button>
+              {manualPreview && (
+                <Button type="button" onClick={handleManualSubmit} disabled={manualLoading} className="w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto">
+                  {manualLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Mark {manualEntryState}
+                </Button>
+              )}
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-orange-500/45 bg-orange-500/5 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Latest Event</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <QrCode className="h-5 w-5 text-orange-500" />
-            <p className="text-lg font-bold text-orange-500">{latest ? "SCAN OK" : "-"}</p>
-            {latest && <QrEntryStateBadge state={latest.entryState} />}
+            <p className="text-lg font-bold text-orange-500">{featuredReading ? (manualReading ? "MANUAL" : "SCAN OK") : "-"}</p>
+            {featuredReading && <QrEntryStateBadge state={featuredReading.entryState} />}
           </div>
-          <p className="mt-1 line-clamp-1 break-all text-xs text-muted-foreground">{latest ? qrStudentDisplayName(latest) : "No scan yet"}</p>
+          <p className="mt-1 line-clamp-1 break-all text-xs text-muted-foreground">{featuredReading ? qrStudentDisplayName(featuredReading) : "No scan yet"}</p>
         </div>
         <div className="rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Total Logs</p>
@@ -156,26 +359,28 @@ export function QrBiometricDashboard() {
               <ScanLine className="h-4 w-4" />
               <span className="text-xs uppercase tracking-[0.22em]">Latest Scan</span>
             </div>
-            {latest ? (
+            {featuredReading ? (
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                <QrStudentAvatar reading={latest} size="lg" />
+                <QrStudentAvatar reading={featuredReading} size="lg" />
                 <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-2xl font-bold leading-tight text-orange-100">{qrStudentDisplayName(latest)}</p>
-                    <QrEntryStateBadge state={latest.entryState} />
+                    <p className="text-2xl font-bold leading-tight text-orange-100">{qrStudentDisplayName(featuredReading)}</p>
+                    <QrEntryStateBadge state={featuredReading.entryState} />
+                    {manualReading && <span className="rounded-full border border-orange-300/30 bg-orange-300/10 px-2.5 py-1 text-xs font-bold text-orange-100">Manual lookup</span>}
                   </div>
-                  <p className="text-sm text-orange-100/75">Enrollment: <span className="font-mono text-orange-100">{latest.studentInfo?.enrollmentNo ?? "--"}</span></p>
-                  {latest.studentInfo?.bhawan && <p className="text-sm text-orange-100/75">Bhawan: <span className="font-semibold text-orange-100">{latest.studentInfo.bhawan}</span></p>}
-                  {latest.studentInfo?.year && <p className="text-sm text-orange-100/75">Year: <span className="font-semibold text-orange-100">{latest.studentInfo.year}</span></p>}
-                  {latest.studentInfo?.emailId && <p className="text-sm text-orange-100/75">Email: <span className="font-mono text-orange-100">{latest.studentInfo.emailId}</span></p>}
-                  <p className="font-mono text-xs text-orange-100/65">{latest.entryState} time: {latestTime}</p>
-                  <QrDecodedPayloadLink reading={latest} className="text-orange-100/70 hover:text-orange-100" />
+                  <p className="text-sm text-orange-100/75">Enrollment: <span className="font-mono text-orange-100">{featuredReading.studentInfo?.enrollmentNo ?? "--"}</span></p>
+                  {featuredReading.studentInfo?.bhawan && <p className="text-sm text-orange-100/75">Bhawan: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.bhawan}</span></p>}
+                  {featuredReading.studentInfo?.year && <p className="text-sm text-orange-100/75">Year: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.year}</span></p>}
+                  {featuredReading.studentInfo?.emailId && <p className="text-sm text-orange-100/75">Email: <span className="font-mono text-orange-100">{featuredReading.studentInfo.emailId}</span></p>}
+                  <p className="font-mono text-xs text-orange-100/65">{featuredReading.entryState} time: {featuredTime}</p>
+                  <QrDecodedPayloadLink reading={featuredReading} className="text-orange-100/70 hover:text-orange-100" />
+                  {manualReading && <Button onClick={() => setManualReading(null)} size="sm" variant="outline" className="mt-1 border-orange-300/30 bg-orange-300/10 text-orange-100 hover:bg-orange-300/20 hover:text-white">Show live latest</Button>}
                 </div>
               </div>
             ) : (
               <p className="font-mono text-xl font-semibold leading-snug text-orange-100">No QR data yet</p>
             )}
-            <p className="mt-4 text-xs text-orange-100/70">Device: <span className="font-mono text-orange-100">{latest?.deviceId ?? "--"}</span></p>
+            <p className="mt-4 text-xs text-orange-100/70">Device: <span className="font-mono text-orange-100">{featuredReading?.deviceId ?? "--"}</span></p>
           </div>
 
           <div className="grid gap-3">
@@ -193,7 +398,7 @@ export function QrBiometricDashboard() {
             </div>
             <div className="rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Last Update</p>
-              <p className="mt-2 inline-flex items-center gap-2 font-mono text-base text-orange-100/90"><Clock3 className="h-4 w-4" />{latestTime}</p>
+              <p className="mt-2 inline-flex items-center gap-2 font-mono text-base text-orange-100/90"><Clock3 className="h-4 w-4" />{manualReading ? featuredTime : actualLatestTime}</p>
               <p className="mt-1 text-xs text-orange-100/60">{relativeSeconds(data.health.lastSeenSeconds)}</p>
             </div>
           </div>

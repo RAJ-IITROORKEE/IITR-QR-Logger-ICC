@@ -86,6 +86,13 @@ export interface QrBiometricApiResponse {
   }
   count: number
   totalCount: number
+  manualLookup?: {
+    enrollment: string
+    found: boolean
+    currentStatus: QrEntryState | null
+    defaultEntryState: QrEntryState | null
+    reading: QrBiometricReading | null
+  } | null
   latest: QrBiometricReading | null
   readings: QrBiometricReading[]
   analysis: QrBiometricAnalysis
