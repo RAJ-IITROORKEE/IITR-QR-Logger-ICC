@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
+import { resolveDeviceMacRegistration } from "@/lib/device-mac-registration"
 import { verifyDeviceApiKey } from "@/lib/device-api-key"
 import { addDoswStudentPhotoFallback, extractStudentInfo, isDoswStudentUrl, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
@@ -24,6 +25,14 @@ const MANUAL_DEVICE_ID = "MANUAL"
 type DbSaveStatus = "saved" | "queued"
 type SortKey = "createdAt" | "deviceId" | "entryState" | "characterCount"
 type SortOrder = "asc" | "desc"
+type AuthenticatedDevice = {
+  id: string
+  deviceNumber: string
+  apiKeyHash: string | null
+  macAddress: string | null
+  macAddressLockedAt: Date | null
+}
+type DeviceAuthResult = { ok: true; error: null; device: AuthenticatedDevice } | { ok: false; error: string }
 
 const liveReadingsBuffer: QrBiometricReading[] = []
 const pendingWriteQueue: QrBiometricReading[] = []
@@ -41,6 +50,15 @@ function parseDecodedData(body: Record<string, unknown> | null): string | null {
 
 function parseApiKey(body: Record<string, unknown> | null, request: NextRequest): string | null {
   return parseText(body?.apiKey) ?? parseText(request.headers.get("x-api-key"))
+}
+
+function parseDeviceMacAddress(body: Record<string, unknown> | null): string | null {
+  return parseText(body?.macAddress) ?? parseText(body?.deviceMac) ?? parseText(body?.mac)
+}
+
+function isDeviceOnlineEvent(body: Record<string, unknown> | null) {
+  const event = parseText(body?.event) ?? parseText(body?.action) ?? parseText(body?.type)
+  return event === "device-online" || event === "device-connected" || event === "wifi-connected"
 }
 
 function parsePositiveInt(value: string | null, fallback: number, max: number): number {
@@ -146,17 +164,41 @@ async function resolveEntryState(decodedData: string): Promise<QrEntryState> {
   }
 }
 
-async function authenticateDevice(deviceId: string, apiKey: string | null) {
+async function authenticateDevice(deviceId: string, apiKey: string | null): Promise<DeviceAuthResult> {
   if (!apiKey) return { ok: false, error: "Missing API key. Paste the generated API_KEY into the Arduino code." }
 
   const device = await prisma.device.findFirst({
     where: { deviceNumber: deviceId, projectType: "qr-biometric" },
-    select: { id: true, apiKeyHash: true },
+    select: { id: true, deviceNumber: true, apiKeyHash: true, macAddress: true, macAddressLockedAt: true },
   })
   if (!device || !verifyDeviceApiKey(apiKey, device.apiKeyHash)) return { ok: false, error: "Invalid device ID or API key" }
 
   await prisma.device.update({ where: { id: device.id }, data: { apiKeyLastUsedAt: new Date() } })
-  return { ok: true, error: null }
+  return { ok: true, error: null, device }
+}
+
+async function saveDeviceMacRegistration(device: AuthenticatedDevice, rawMacAddress: string) {
+  const result = resolveDeviceMacRegistration(device, rawMacAddress)
+  if (!result.ok) return result
+
+  if (result.status === "registered") {
+    const existingDevice = await prisma.device.findFirst({
+      where: { projectType: "qr-biometric", macAddress: result.macAddress, NOT: { id: device.id } },
+      select: { deviceNumber: true },
+    })
+    if (existingDevice) {
+      return {
+        ok: false as const,
+        status: "conflict" as const,
+        error: `Device MAC is already locked to ${existingDevice.deviceNumber}`,
+        macAddress: result.macAddress,
+        lockedMacAddress: result.macAddress,
+      }
+    }
+  }
+
+  await prisma.device.update({ where: { id: device.id }, data: result.updateData })
+  return result
 }
 
 function pushWithLimit(buffer: QrBiometricReading[], reading: QrBiometricReading, maxSize: number) {
@@ -442,14 +484,50 @@ export async function POST(request: NextRequest) {
   const deviceId = parseText(body?.deviceId)
   const decodedData = parseDecodedData(body)
   const apiKey = parseApiKey(body, request)
+  const deviceMacAddress = parseDeviceMacAddress(body)
+  const deviceOnlineEvent = isDeviceOnlineEvent(body)
 
-  if (!deviceId || !decodedData) {
+  if (!deviceId) {
     return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Invalid payload. Expected { deviceId: string, apiKey: string, decodedData: string }" }, { status: 400 })
   }
 
   const auth = await authenticateDevice(deviceId, apiKey)
   if (!auth.ok) {
     return NextResponse.json({ success: false, module: "qr-biometric-icc", error: auth.error }, { status: 401 })
+  }
+
+  if (deviceOnlineEvent || (deviceMacAddress && !decodedData)) {
+    if (!deviceMacAddress) {
+      return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Invalid payload. Expected macAddress for device-online event" }, { status: 400 })
+    }
+
+    const registration = await saveDeviceMacRegistration(auth.device, deviceMacAddress)
+    if (!registration.ok) {
+      return NextResponse.json({ success: false, module: "qr-biometric-icc", event: "device-online", deviceId, macStatus: registration.status, error: registration.error }, { status: registration.status === "conflict" ? 409 : 400 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      module: "qr-biometric-icc",
+      endpoint: RECEIVER_ENDPOINT,
+      event: "device-online",
+      deviceId,
+      macAddress: registration.macAddress,
+      macStatus: registration.status,
+      locked: true,
+      message: registration.status === "registered" ? "Device MAC registered and locked" : "Device MAC verified",
+    })
+  }
+
+  if (!decodedData) {
+    return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Invalid payload. Expected { deviceId: string, apiKey: string, decodedData: string }" }, { status: 400 })
+  }
+
+  if (deviceMacAddress) {
+    const registration = await saveDeviceMacRegistration(auth.device, deviceMacAddress)
+    if (!registration.ok) {
+      return NextResponse.json({ success: false, module: "qr-biometric-icc", deviceId, macStatus: registration.status, error: registration.error }, { status: registration.status === "conflict" ? 409 : 400 })
+    }
   }
 
   if (!isDoswStudentUrl(decodedData)) {

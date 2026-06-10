@@ -41,20 +41,24 @@ model SupportInquiry {
 }
 
 model Device {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  deviceNumber String   @unique
-  name         String
-  projectType  String   @default("qr-biometric")
-  ssid         String   @default("hotspot")
-  wifiPassword String   @default("password")
-  firmware     String   @default("v1.0.0")
-  location     String   @default("ICC, IIT Roorkee")
-  apiKeyHash   String?
-  apiKeyPreview String?
-  apiKeyCreatedAt DateTime?
-  apiKeyLastUsedAt DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  deviceNumber       String    @unique
+  name               String
+  projectType        String    @default("qr-biometric")
+  ssid               String    @default("hotspot")
+  wifiPassword       String    @default("password")
+  firmware           String    @default("v1.0.0")
+  location           String    @default("ICC, IIT Roorkee")
+  apiKeyHash         String?
+  apiKeyPreview      String?
+  apiKeyCreatedAt    DateTime?
+  apiKeyLastUsedAt   DateTime?
+  macAddress         String?
+  macAddressLockedAt DateTime?
+  lastSeenAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([projectType, createdAt])
+  @@index([macAddress])
 }

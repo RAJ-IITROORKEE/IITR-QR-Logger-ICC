@@ -38,6 +38,9 @@ function toApiDevice(device: {
   apiKeyPreview: string | null
   apiKeyCreatedAt: Date | null
   apiKeyLastUsedAt: Date | null
+  macAddress: string | null
+  macAddressLockedAt: Date | null
+  lastSeenAt: Date | null
   createdAt: Date
   updatedAt: Date
 }) {
@@ -51,6 +54,9 @@ function toApiDevice(device: {
     apiKeyPreview: device.apiKeyPreview,
     apiKeyCreatedAt: device.apiKeyCreatedAt?.toISOString() ?? null,
     apiKeyLastUsedAt: device.apiKeyLastUsedAt?.toISOString() ?? null,
+    macAddress: device.macAddress,
+    macAddressLockedAt: device.macAddressLockedAt?.toISOString() ?? null,
+    lastSeenAt: device.lastSeenAt?.toISOString() ?? null,
     createdAt: device.createdAt.toISOString(),
     updatedAt: device.updatedAt.toISOString(),
   }

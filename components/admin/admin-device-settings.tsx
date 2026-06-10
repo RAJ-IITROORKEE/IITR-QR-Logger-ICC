@@ -22,6 +22,9 @@ type DeviceRecord = {
   apiKeyPreview: string | null
   apiKeyCreatedAt: string | null
   apiKeyLastUsedAt: string | null
+  macAddress: string | null
+  macAddressLockedAt: string | null
+  lastSeenAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -49,7 +52,15 @@ type GeneratedKey = {
 const postPayload = {
   deviceId: "QRB-001",
   apiKey: "PASTE_GENERATED_API_KEY_HERE",
+  macAddress: "AA:BB:CC:DD:EE:FF",
   decodedData: "https://dosw.iitr.ac.in/StudentProxy.aspx?id=STUDENT_TOKEN_HERE",
+}
+
+const onlinePayload = {
+  event: "device-online",
+  deviceId: "QRB-001",
+  apiKey: "PASTE_GENERATED_API_KEY_HERE",
+  macAddress: "AA:BB:CC:DD:EE:FF",
 }
 
 const successResponse = {
@@ -96,6 +107,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
   const [generated, setGenerated] = useState<GeneratedKey | null>(null)
   const [error, setError] = useState(initialData.error)
   const [pending, setPending] = useState(false)
+  const lockedMacCount = devices.filter((device) => device.macAddress).length
 
   async function addDevice() {
     const name = deviceName.trim()
@@ -180,8 +192,8 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>Currently observed devices</CardDescription>
-            <CardTitle className="font-mono text-3xl">{initialData.observedDevices.length}</CardTitle>
+            <CardDescription>MAC locked devices</CardDescription>
+            <CardTitle className="font-mono text-3xl">{lockedMacCount}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -215,6 +227,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
             </Button>
             <div className="rounded-2xl border border-border bg-muted/35 p-4 text-xs leading-5 text-muted-foreground">
               After generation, paste the raw API key into <span className="font-mono text-foreground">const char* API_KEY = &quot;&quot;;</span> in the Arduino sketch and use the assigned <span className="font-mono text-foreground">DEVICE_ID</span>.
+              The device will register and lock its WiFi MAC automatically after it connects.
             </div>
           </CardContent>
         </Card>
@@ -282,6 +295,21 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
                       <Badge variant="outline">Key {device.apiKeyPreview ?? "not generated"}</Badge>
                       <Badge variant="outline">Created {formatDate(device.apiKeyCreatedAt)}</Badge>
                       <Badge variant="outline">Last used {formatDate(device.apiKeyLastUsedAt)}</Badge>
+                      <Badge variant={device.macAddress ? "default" : "outline"}>{device.macAddress ? "MAC locked" : "MAC pending"}</Badge>
+                    </div>
+                    <div className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/25 p-3 text-xs text-muted-foreground sm:grid-cols-3">
+                      <div>
+                        <p className="uppercase tracking-[0.16em]">WiFi MAC</p>
+                        <p className="mt-1 font-mono text-foreground">{device.macAddress ?? "Waiting for device"}</p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-[0.16em]">Locked</p>
+                        <p className="mt-1 text-foreground">{formatDate(device.macAddressLockedAt)}</p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-[0.16em]">Last online</p>
+                        <p className="mt-1 text-foreground">{formatDate(device.lastSeenAt)}</p>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -360,6 +388,10 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
             <CardDescription>Payload and response examples for secure device integration.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Online MAC registration</p>
+              <JsonBlock value={onlinePayload} />
+            </div>
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Request body</p>
               <JsonBlock value={postPayload} />
