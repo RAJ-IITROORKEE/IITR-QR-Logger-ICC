@@ -1,7 +1,7 @@
 "use client"
 
 import { FormEvent, useState } from "react"
-import { AlertCircle, CheckCircle2, KeyRound, Pencil, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react"
+import { AlertCircle, CheckCircle2, Eye, EyeOff, KeyRound, Pencil, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,18 +39,25 @@ function roleLabel(role: string) {
   return role === "professor" ? "Professor" : "Staff"
 }
 
+function accessRole(value: string): AccessRole {
+  return value === "professor" || value === "super-admin" ? value : "staff"
+}
+
 export function AdminAccessManager({ initialAccounts, initialError }: { initialAccounts: AccessAccount[]; initialError: string | null }) {
   const [accounts, setAccounts] = useState(initialAccounts)
   const [form, setForm] = useState<AccessForm>(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<AccessForm>(emptyForm)
+  const [showCreatePassword, setShowCreatePassword] = useState(false)
+  const [showEditPassword, setShowEditPassword] = useState(false)
   const [error, setError] = useState(initialError)
   const [success, setSuccess] = useState("")
   const [pending, setPending] = useState(false)
 
   function startEdit(account: AccessAccount) {
     setEditingId(account.id)
-    setEditForm({ role: account.role === "professor" ? "professor" : "staff", name: account.name, username: account.username, password: "" })
+    setEditForm({ role: accessRole(account.role), name: account.name, username: account.username, password: "" })
+    setShowEditPassword(false)
     setError(null)
     setSuccess("")
   }
@@ -195,7 +202,17 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
               </div>
               <div className="space-y-2">
                 <Label htmlFor="access-password">Set password</Label>
-                <Input id="access-password" type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} autoComplete="new-password" required />
+                <div className="relative">
+                  <Input id="access-password" type={showCreatePassword ? "text" : "password"} value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} className="pr-12" autoComplete="new-password" required />
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePassword((current) => !current)}
+                    aria-label={showCreatePassword ? "Hide password" : "Show password"}
+                    className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-orange-500/10 hover:text-orange-300"
+                  >
+                    {showCreatePassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                </div>
               </div>
               <Button disabled={pending} className="bg-orange-500 text-black hover:bg-orange-400">
                 <KeyRound className="size-4" />
@@ -242,7 +259,17 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
                       </div>
                       <div className="space-y-2">
                         <Label>New password</Label>
-                        <Input type="password" value={editForm.password} onChange={(event) => setEditForm((current) => ({ ...current, password: event.target.value }))} placeholder="Leave blank" autoComplete="new-password" />
+                        <div className="relative">
+                          <Input type={showEditPassword ? "text" : "password"} value={editForm.password} onChange={(event) => setEditForm((current) => ({ ...current, password: event.target.value }))} placeholder="Leave blank" className="pr-12" autoComplete="new-password" />
+                          <button
+                            type="button"
+                            onClick={() => setShowEditPassword((current) => !current)}
+                            aria-label={showEditPassword ? "Hide password" : "Show password"}
+                            className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-orange-500/10 hover:text-orange-300"
+                          >
+                            {showEditPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                          </button>
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button disabled={pending} size="sm" className="bg-orange-500 text-black hover:bg-orange-400"><Save className="size-4" />Save</Button>
