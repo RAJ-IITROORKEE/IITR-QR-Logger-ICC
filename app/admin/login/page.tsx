@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 
 export default function AdminLoginPage() {
   const router = useRouter()
-  const [username, setUsername] = useState("admin")
+  const [username, setUsername] = useState("admin-raj")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -26,7 +26,7 @@ export default function AdminLoginPage() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, mode: "admin" }),
       })
 
       if (!response.ok) {

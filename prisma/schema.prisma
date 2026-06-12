@@ -62,3 +62,16 @@ model Device {
   @@index([projectType, createdAt])
   @@index([macAddress])
 }
+
+model AccessAccount {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  role         String
+  name         String
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([role, createdAt])
+  @@map("access_accounts")
+}

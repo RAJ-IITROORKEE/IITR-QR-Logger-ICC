@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { QrDecodedPayloadLink, QrEntryStateBadge, QrScanDetailsDialog, QrStudentAvatar, QrStudentSummary, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
+import { QrEntryStateBadge, QrStudentAvatar, QrStudentSummary, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
 import type { QrBiometricReading, QrEntryState } from "@/types/qr-biometric"
 
 interface QrApiResponse {
@@ -373,7 +373,6 @@ export function QrBiometricDashboard() {
                   {featuredReading.studentInfo?.year && <p className="text-sm text-orange-100/75">Year: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.year}</span></p>}
                   {featuredReading.studentInfo?.emailId && <p className="text-sm text-orange-100/75">Email: <span className="font-mono text-orange-100">{featuredReading.studentInfo.emailId}</span></p>}
                   <p className="font-mono text-xs text-orange-100/65">{featuredReading.entryState} time: {featuredTime}</p>
-                  <QrDecodedPayloadLink reading={featuredReading} className="text-orange-100/70 hover:text-orange-100" />
                   {manualReading && <Button onClick={() => setManualReading(null)} size="sm" variant="outline" className="mt-1 border-orange-300/30 bg-orange-300/10 text-orange-100 hover:bg-orange-300/20 hover:text-white">Show live latest</Button>}
                 </div>
               </div>
@@ -424,13 +423,12 @@ export function QrBiometricDashboard() {
                 <th className="px-4 py-3 text-left font-medium">Device</th>
                 <th className="px-4 py-3 text-left font-medium">Student / QR</th>
                 <th className="px-4 py-3 text-left font-medium">Time</th>
-                <th className="px-4 py-3 text-right font-medium">View</th>
               </tr>
             </thead>
             <tbody>
               {data.readings.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No QR scans found yet.</td>
+                  <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">No QR scans found yet.</td>
                 </tr>
               ) : (
                 data.readings.map((reading) => (
@@ -441,7 +439,6 @@ export function QrBiometricDashboard() {
                       <QrStudentSummary reading={reading} />
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{formatTime(reading.timestamp)}</td>
-                    <td className="px-4 py-3 text-right"><QrScanDetailsDialog reading={reading} /></td>
                   </tr>
                 ))
               )}

@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server"
 
+import { ACCESS_SESSION_COOKIE } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE } from "@/lib/admin-auth"
 
 export async function POST() {
   const response = NextResponse.json({ success: true })
   response.cookies.set({
     name: ADMIN_SESSION_COOKIE,
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 0,
+    path: "/",
+  })
+  response.cookies.set({
+    name: ACCESS_SESSION_COOKIE,
     value: "",
     httpOnly: true,
     sameSite: "lax",

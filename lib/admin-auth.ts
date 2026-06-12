@@ -5,8 +5,8 @@ export const ADMIN_SESSION_MAX_AGE = 60 * 60 * 8
 
 export function getAdminCredentials() {
   return {
-    username: process.env.ADMIN_USERNAME ?? process.env.USERNAME ?? "admin",
-    password: process.env.ADMIN_PASSWORD ?? process.env.PASSWORD ?? "admin-icc-password",
+    username: process.env.ADMIN_USERNAME ?? "admin",
+    password: process.env.ADMIN_PASSWORD ?? "admin-icc-password",
   }
 }
 

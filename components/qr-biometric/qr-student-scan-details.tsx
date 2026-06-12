@@ -30,7 +30,7 @@ export function getQrDecodedHref(reading: QrBiometricReading): string | null {
 export function QrEntryStateBadge({ state }: { state: QrBiometricReading["entryState"] }) {
   const isIn = state === "IN"
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${isIn ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-500" : "border-red-500/30 bg-red-500/15 text-red-500"}`}>
+    <span className={`inline-flex min-w-14 items-center justify-center rounded-full border px-3.5 py-1.5 text-sm font-black tracking-wide shadow-sm ${isIn ? "border-emerald-500/40 bg-emerald-500/18 text-emerald-400 shadow-emerald-950/25" : "border-red-500/40 bg-red-500/18 text-red-400 shadow-red-950/25"}`}>
       {state}
     </span>
   )
@@ -78,7 +78,7 @@ export function QrStudentAvatar({ reading, size = "sm" }: { reading: QrBiometric
 }
 
 export function QrStudentSummary({ reading }: { reading: QrBiometricReading }) {
-  if (!reading.studentInfo) return <QrDecodedPayloadLink reading={reading} />
+  if (!reading.studentInfo) return <span className="font-mono text-xs text-muted-foreground">QR payload stored securely</span>
 
   return (
     <div className="flex min-w-[280px] items-center gap-3">
@@ -86,7 +86,6 @@ export function QrStudentSummary({ reading }: { reading: QrBiometricReading }) {
       <div className="min-w-0 space-y-1">
         <p className="font-semibold text-foreground">{qrStudentDisplayName(reading)}</p>
         <p className="text-xs text-muted-foreground">{[reading.studentInfo.enrollmentNo, reading.studentInfo.year, reading.studentInfo.emailId].filter(Boolean).join(" | ")}</p>
-        <QrDecodedPayloadLink reading={reading} className="line-clamp-1 text-[11px]" />
       </div>
     </div>
   )

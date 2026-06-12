@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { ACCESS_SESSION_COOKIE, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { resolveDeviceMacRegistration } from "@/lib/device-mac-registration"
 import { verifyDeviceApiKey } from "@/lib/device-api-key"
@@ -36,6 +37,11 @@ type DeviceAuthResult = { ok: true; error: null; device: AuthenticatedDevice } |
 
 const liveReadingsBuffer: QrBiometricReading[] = []
 const pendingWriteQueue: QrBiometricReading[] = []
+
+async function hasDashboardAccess(request: NextRequest) {
+  if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
+  return verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value)
+}
 
 function parseText(value: unknown): string | null {
   if (typeof value !== "string") return null
@@ -449,6 +455,10 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const manualEnrollment = parseText(body?.manualEnrollment)
   if (manualEnrollment) {
+    if (!(await hasDashboardAccess(request))) {
+      return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Unauthorized" }, { status: 401 })
+    }
+
     try {
       const sourceReading = await findStoredReadingByEnrollment(manualEnrollment)
       if (!sourceReading) {
@@ -566,7 +576,11 @@ export async function POST(request: NextRequest) {
   })
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  if (!(await hasDashboardAccess(request))) {
+    return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Unauthorized" }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const limit = parsePositiveInt(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT)
   const page = parsePositiveInt(searchParams.get("page"), 1, Number.MAX_SAFE_INTEGER)
