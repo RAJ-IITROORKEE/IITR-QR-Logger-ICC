@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { ACCESS_SESSION_COOKIE, verifyAccessSession } from "@/lib/access-auth"
+import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { resolveDeviceMacRegistration } from "@/lib/device-mac-registration"
 import { verifyDeviceApiKey } from "@/lib/device-api-key"
@@ -651,7 +651,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) {
+  if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value) && !(await verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value, ADMIN_ACCESS_ROLES))) {
     return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Unauthorized" }, { status: 401 })
   }
 

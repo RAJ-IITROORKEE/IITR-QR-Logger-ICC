@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { prisma } from "@/lib/prisma"
 import type { SupportInquiry, SupportStatus } from "@/types/support"
@@ -53,8 +54,9 @@ function toApiInquiry(record: {
   }
 }
 
-function requireAdmin(request: NextRequest) {
-  return verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)
+async function requireAdmin(request: NextRequest) {
+  if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
+  return verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value, ADMIN_ACCESS_ROLES)
 }
 
 export async function POST(request: Request) {
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
   const page = parsePage(searchParams.get("page"))
@@ -130,7 +132,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const id = typeof body?.id === "string" ? body.id.trim() : ""
@@ -147,7 +149,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, module: "support", error: "Unauthorized" }, { status: 401 })
 
   const body = await request.json().catch(() => null)
   const id = typeof body?.id === "string" ? body.id.trim() : ""

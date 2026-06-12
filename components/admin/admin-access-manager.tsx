@@ -177,7 +177,7 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
               <UserPlus className="size-5 text-orange-300" />
               <CardTitle>Create Access Point</CardTitle>
             </div>
-            <CardDescription>Add a staff or professor credential for dashboard login.</CardDescription>
+            <CardDescription>Add a staff, professor, or super admin credential for dashboard login.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={createAccount}>

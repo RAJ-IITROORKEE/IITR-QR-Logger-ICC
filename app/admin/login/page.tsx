@@ -61,7 +61,7 @@ export default function AdminLoginPage() {
               <LockKeyhole className="size-5" />
             </div>
             <CardTitle>Admin Login</CardTitle>
-            <CardDescription>Authenticate to access logs, analytics, and support requests.</CardDescription>
+            <CardDescription>Use admin credentials or a professor/super admin access account.</CardDescription>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>

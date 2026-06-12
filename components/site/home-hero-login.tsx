@@ -55,7 +55,7 @@ export function HomeHeroLogin() {
             QR based student logger for secure campus movement.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-8 text-orange-100/72 sm:text-lg">
-            Monitor live QR biometric scans, verify IN/OUT movement, and keep ICC student access records protected behind staff and professor credentials.
+            Monitor live QR biometric scans, verify IN/OUT movement, and keep ICC student access records protected behind staff, professor, and super admin credentials.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a href="#login" className="inline-flex h-12 items-center gap-2 rounded-xl bg-orange-500 px-5 text-sm font-bold text-black shadow-[0_18px_40px_-20px_rgba(249,115,22,0.9)] transition hover:bg-orange-400">
@@ -72,7 +72,7 @@ export function HomeHeroLogin() {
               ["Secure", "Staff-only logger"],
               ["Student History", "IN/OUT records"],
               ["Admin Control", "Credential control"],
-              ["Role", "Staff or professor"],
+              ["Role", "Staff, professor, or admin"],
             ].map(([title, text]) => (
               <div key={title} className="rounded-2xl border border-orange-200/15 bg-white/[0.045] p-4 backdrop-blur">
                 <p className="text-lg font-bold text-orange-100">{title}</p>
@@ -92,7 +92,7 @@ export function HomeHeroLogin() {
               <LockKeyhole className="size-6" />
             </div>
             <h2 className="text-2xl font-bold text-orange-50">Staff Login</h2>
-            <p className="mt-2 max-w-sm text-sm leading-6 text-orange-100/65">Use an admin-created staff or professor access account to open the live QRBiometric dashboard.</p>
+            <p className="mt-2 max-w-sm text-sm leading-6 text-orange-100/65">Use an admin-created staff, professor, or super admin access account to open the live QRBiometric dashboard.</p>
 
             <form onSubmit={handleSubmit} className="mt-7 space-y-4">
               <div className="space-y-2">
@@ -121,7 +121,7 @@ export function HomeHeroLogin() {
             </form>
 
             <div className="mt-6 grid gap-3 rounded-2xl border border-orange-300/15 bg-orange-300/5 p-4 text-xs text-orange-100/70 sm:grid-cols-2">
-              <span className="inline-flex items-center gap-2"><Fingerprint className="size-3.5 text-orange-300" />Staff/professor access</span>
+              <span className="inline-flex items-center gap-2"><Fingerprint className="size-3.5 text-orange-300" />Staff/professor/admin access</span>
               <span className="inline-flex items-center gap-2"><QrCode className="size-3.5 text-orange-300" />Live logger protected</span>
             </div>
           </div>

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { ensureDefaultAccessAccounts, hashAccessPassword, normalizeAccessRole } from "@/lib/access-auth"
+import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, ensureDefaultAccessAccounts, hashAccessPassword, normalizeAccessRole, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { prisma } from "@/lib/prisma"
 
-function requireAdmin(request: NextRequest) {
-  return verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)
+async function requireAdmin(request: NextRequest) {
+  if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
+  return verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value, ADMIN_ACCESS_ROLES)
 }
 
 function parseText(value: unknown) {
@@ -24,7 +25,7 @@ function toAccessAccount(account: { id: string; role: string; name: string; user
 }
 
 export async function GET(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
 
   await ensureDefaultAccessAccounts()
   const accounts = await prisma.accessAccount.findMany({ orderBy: [{ role: "asc" }, { createdAt: "desc" }] })
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const role = normalizeAccessRole(body?.role)
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   const id = parseText(body?.id)

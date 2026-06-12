@@ -6,7 +6,7 @@ import {
   createAdminSessionToken,
   getAdminCredentials,
 } from "@/lib/admin-auth"
-import { ACCESS_SESSION_COOKIE, ACCESS_SESSION_MAX_AGE, authenticateAccessAccount, createAccessSessionToken } from "@/lib/access-auth"
+import { ACCESS_SESSION_COOKIE, ACCESS_SESSION_MAX_AGE, authenticateAccessAccount, canAccessAdminPanel, createAccessSessionToken } from "@/lib/access-auth"
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
@@ -18,18 +18,36 @@ export async function POST(request: NextRequest) {
 
   if (mode === "admin") {
     const credentials = getAdminCredentials()
-    if (body?.username !== credentials.username || body?.password !== credentials.password) {
+    if (body?.username === credentials.username && body?.password === credentials.password) {
+      const response = NextResponse.json({ success: true, redirectTo: "/admin", accountType: "admin" })
+      response.cookies.set({
+        name: ADMIN_SESSION_COOKIE,
+        value: createAdminSessionToken(),
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: ADMIN_SESSION_MAX_AGE,
+        path: "/",
+      })
+
+      return response
+    }
+
+    const username = body?.username?.trim() ?? ""
+    const password = body?.password ?? ""
+    const account = await authenticateAccessAccount(username, password)
+    if (!account || !canAccessAdminPanel(account.role)) {
       return NextResponse.json({ success: false, message: "Invalid admin credentials" }, { status: 401 })
     }
 
-    const response = NextResponse.json({ success: true, redirectTo: "/admin", accountType: "admin" })
+    const response = NextResponse.json({ success: true, redirectTo: "/admin", accountType: account.role })
     response.cookies.set({
-      name: ADMIN_SESSION_COOKIE,
-      value: createAdminSessionToken(),
+      name: ACCESS_SESSION_COOKIE,
+      value: createAccessSessionToken(account),
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      maxAge: ADMIN_SESSION_MAX_AGE,
+      maxAge: ACCESS_SESSION_MAX_AGE,
       path: "/",
     })
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { generateDeviceApiKey, hashDeviceApiKey, previewDeviceApiKey } from "@/lib/device-api-key"
 import { prisma } from "@/lib/prisma"
@@ -7,8 +8,9 @@ import { prisma } from "@/lib/prisma"
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-function requireAdmin(request: NextRequest) {
-  return verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)
+async function requireAdmin(request: NextRequest) {
+  if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
+  return verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value, ADMIN_ACCESS_ROLES)
 }
 
 function readText(value: unknown) {
@@ -63,7 +65,7 @@ function toApiDevice(device: {
 }
 
 export async function POST(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
 
   const body = (await request.json().catch(() => null)) as { name?: unknown } | null
   const name = readText(body?.name)
@@ -86,7 +88,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  if (!requireAdmin(request)) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
 
   const body = (await request.json().catch(() => null)) as { id?: unknown; action?: unknown } | null
   const id = readText(body?.id)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { prisma } from "@/lib/prisma"
 import { normalizeDecodedUrl } from "@/lib/qr-biometric-student"
@@ -38,7 +39,7 @@ function readStudentInfo(value: unknown): Record<string, string> {
 }
 
 export async function GET(request: NextRequest) {
-  if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) {
+  if (!verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value) && !(await verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value, ADMIN_ACCESS_ROLES))) {
     return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "Unauthorized" }, { status: 401 })
   }
 

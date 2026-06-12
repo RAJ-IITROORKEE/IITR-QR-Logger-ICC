@@ -6,6 +6,7 @@ export const ACCESS_SESSION_COOKIE = "qr_logger_access_session"
 export const ACCESS_SESSION_MAX_AGE = 60 * 60 * 8
 
 export type AccessRole = "staff" | "professor" | "super-admin"
+export const ADMIN_ACCESS_ROLES = ["professor", "super-admin"] satisfies AccessRole[]
 
 type AccessAccountSession = {
   id: string
@@ -29,6 +30,10 @@ function sessionSecret() {
 
 export function normalizeAccessRole(value: unknown): AccessRole | null {
   return value === "staff" || value === "professor" || value === "super-admin" ? value : null
+}
+
+export function canAccessAdminPanel(role: unknown) {
+  return role === "professor" || role === "super-admin"
 }
 
 export function hashAccessPassword(password: string) {
@@ -84,7 +89,7 @@ export async function authenticateAccessAccount(username: string, password: stri
   return account
 }
 
-export async function verifyAccessSession(token: string | undefined) {
+export async function verifyAccessSession(token: string | undefined, allowedRoles?: readonly AccessRole[]) {
   if (!token) return false
 
   const [id, fingerprint, signature] = token.split(".")
@@ -96,8 +101,10 @@ export async function verifyAccessSession(token: string | undefined) {
   if (signatureBuffer.length !== expectedBuffer.length || !timingSafeEqual(signatureBuffer, expectedBuffer)) return false
 
   try {
-    const account = await prisma.accessAccount.findUnique({ where: { id }, select: { passwordHash: true } })
-    return account ? passwordFingerprint(account.passwordHash) === fingerprint : false
+    const account = await prisma.accessAccount.findUnique({ where: { id }, select: { passwordHash: true, role: true } })
+    if (!account || passwordFingerprint(account.passwordHash) !== fingerprint) return false
+
+    return allowedRoles ? allowedRoles.includes(account.role as AccessRole) : true
   } catch (error) {
     console.error("[access-auth] Failed to verify access session", error)
     return false
