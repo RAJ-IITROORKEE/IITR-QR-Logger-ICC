@@ -97,9 +97,9 @@ function exportHref(month: string, from: string, to: string) {
 
 function StatCard({ label, value, caption }: { label: string; value: number | string; caption: string }) {
   return (
-    <div className="rounded-2xl border border-border bg-card/75 p-5">
+    <div className="min-w-0 rounded-2xl border border-border bg-card/75 p-5">
       <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-2 font-mono text-3xl font-semibold text-orange-100">{value}</p>
+      <p className="mt-2 break-words font-mono text-3xl font-semibold text-orange-100">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
     </div>
   )
@@ -109,11 +109,11 @@ function AdminStudentSummary({ reading, avatarSize = "sm" }: { reading: QrBiomet
   const info = reading.studentInfo
 
   return (
-    <div className="flex min-w-[280px] items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3 sm:min-w-[280px]">
       <QrStudentAvatar reading={reading} size={avatarSize} />
       <div className="min-w-0 space-y-1">
         <p className="truncate font-semibold text-foreground">{qrStudentDisplayName(reading)}</p>
-        <p className="text-xs text-muted-foreground">Enrollment: <span className="font-mono text-foreground">{info?.enrollmentNo ?? "--"}</span></p>
+        <p className="truncate text-xs text-muted-foreground">Enrollment: <span className="font-mono text-foreground">{info?.enrollmentNo ?? "--"}</span></p>
         <p className="truncate text-xs text-muted-foreground">Email: <span className="font-mono text-foreground">{info?.emailId ?? "--"}</span></p>
       </div>
     </div>
@@ -186,19 +186,19 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
             <h2 className="mt-2 text-3xl font-semibold tracking-tight">ICC QR biometric operations</h2>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Monitor live scans, student entry state, daily/monthly totals, searchable logs, and exportable timelines.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => { setLoading(true); void fetchData() }} disabled={loading}>
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            <Button onClick={() => { setLoading(true); void fetchData() }} disabled={loading} className="w-full sm:w-auto">
               <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
               Refresh
             </Button>
-            <Button asChild variant="outline">
+            <Button asChild variant="outline" className="w-full sm:w-auto">
               <a href={exportHref(month, from, to)}>
                 <Download className="h-4 w-4" />
                 Export CSV
               </a>
             </Button>
             {mode === "logs" && (
-              <Button variant="destructive" onClick={() => void clearScopedLogs()}>
+              <Button variant="destructive" onClick={() => void clearScopedLogs()} className="w-full sm:w-auto">
                 <Trash2 className="h-4 w-4" />
                 Clear
               </Button>
@@ -229,7 +229,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <QrEntryStateBadge state={data.latest.entryState} />
-                    <span className="font-mono text-xs text-muted-foreground">{data.latest.deviceId}</span>
+                    <span className="break-all font-mono text-xs text-muted-foreground">{data.latest.deviceId}</span>
                   </div>
                   <div className="mt-4">
                     <AdminStudentSummary reading={data.latest} avatarSize="lg" />
@@ -254,7 +254,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
               <p className="text-xs text-muted-foreground">Live buffer and persistence queue</p>
             </div>
           </div>
-          <div className="mt-5 grid grid-cols-3 gap-3">
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <StatCard label="DB" value={data.system.dbConnected ? "OK" : "OFF"} caption="connection" />
             <StatCard label="Buffer" value={data.system.liveBufferCount} caption="memory logs" />
             <StatCard label="Queued" value={data.system.queuedWrites} caption="DB writes" />
@@ -269,25 +269,25 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
               <h3 className="text-lg font-semibold">Logged Students</h3>
               <p className="text-xs text-muted-foreground">Search, sort, delete, clear, and export QR biometric records.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:justify-end">
               <label className="relative w-full sm:w-72">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setLoading(true); void fetchData() } }} placeholder="Search student, device, QR" className="w-full rounded-xl border border-border bg-background/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500" />
               </label>
-              <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1) }} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500" />
-              <input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1) }} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500" />
-              <input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1) }} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500" />
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500">
+              <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1) }} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto" />
+              <input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1) }} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto" />
+              <input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1) }} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto" />
+              <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto">
                 <option value="createdAt">Time</option>
                 <option value="deviceId">Device</option>
                 <option value="entryState">State</option>
                 <option value="scanStatus">Status</option>
               </select>
-              <select value={order} onChange={(event) => setOrder(event.target.value as SortOrder)} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500">
+              <select value={order} onChange={(event) => setOrder(event.target.value as SortOrder)} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto">
                 <option value="desc">Desc</option>
                 <option value="asc">Asc</option>
               </select>
-              <Button onClick={() => { setPage(1); setLoading(true); void fetchData() }}>Apply</Button>
+              <Button onClick={() => { setPage(1); setLoading(true); void fetchData() }} className="w-full xl:w-auto">Apply</Button>
             </div>
           </div>
           <div className="overflow-x-auto">

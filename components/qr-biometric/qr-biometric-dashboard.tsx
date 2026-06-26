@@ -316,27 +316,27 @@ export function QrBiometricDashboard() {
         </DialogContent>
       </Dialog>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div className="rounded-2xl border border-orange-500/45 bg-orange-500/5 p-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="min-w-0 rounded-2xl border border-orange-500/45 bg-orange-500/5 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Latest Event</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <QrCode className="h-5 w-5 text-orange-500" />
-            <p className="text-lg font-bold text-orange-500">{featuredReading ? (manualReading ? "MANUAL" : "SCAN OK") : "-"}</p>
+            <QrCode className="h-5 w-5 shrink-0 text-orange-500" />
+            <p className="min-w-0 text-lg font-bold text-orange-500">{featuredReading ? (manualReading ? "MANUAL" : "SCAN OK") : "-"}</p>
             {featuredReading && <QrEntryStateBadge state={featuredReading.entryState} />}
           </div>
           <p className="mt-1 line-clamp-1 break-all text-xs text-muted-foreground">{featuredReading ? qrStudentDisplayName(featuredReading) : "No scan yet"}</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card/80 p-4">
+        <div className="min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Total Logs</p>
           <p className="text-2xl font-bold tabular-nums">{data.stats.totalScans}</p>
           <p className="mt-1 text-xs text-muted-foreground">IN {data.stats.currentIn} · OUT {data.stats.currentOut}</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card/80 p-4">
+        <div className="min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Devices</p>
           <p className="text-2xl font-bold tabular-nums text-orange-500">{data.stats.uniqueDevices}</p>
           <p className="mt-1 text-xs text-muted-foreground">Student profiles: {data.stats.scrapedStudents}</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card/80 p-4">
+        <div className="min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Device Health</p>
           <div className="mt-1 flex items-center gap-2">
             {online ? <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-500"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>LIVE</span> : <span className="flex items-center gap-1.5 text-sm font-bold text-red-500"><WifiOff className="h-3.5 w-3.5" />OFFLINE</span>}
@@ -364,14 +364,14 @@ export function QrBiometricDashboard() {
                 <QrStudentAvatar reading={featuredReading} size="lg" />
                 <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-2xl font-bold leading-tight text-orange-100">{qrStudentDisplayName(featuredReading)}</p>
+                    <p className="min-w-0 break-words text-2xl font-bold leading-tight text-orange-100">{qrStudentDisplayName(featuredReading)}</p>
                     <QrEntryStateBadge state={featuredReading.entryState} />
                     {manualReading && <span className="rounded-full border border-orange-300/30 bg-orange-300/10 px-2.5 py-1 text-xs font-bold text-orange-100">Manual lookup</span>}
                   </div>
-                  <p className="text-sm text-orange-100/75">Enrollment: <span className="font-mono text-orange-100">{featuredReading.studentInfo?.enrollmentNo ?? "--"}</span></p>
+                  <p className="break-words text-sm text-orange-100/75">Enrollment: <span className="font-mono text-orange-100">{featuredReading.studentInfo?.enrollmentNo ?? "--"}</span></p>
                   {featuredReading.studentInfo?.bhawan && <p className="text-sm text-orange-100/75">Bhawan: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.bhawan}</span></p>}
                   {featuredReading.studentInfo?.year && <p className="text-sm text-orange-100/75">Year: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.year}</span></p>}
-                  {featuredReading.studentInfo?.emailId && <p className="text-sm text-orange-100/75">Email: <span className="font-mono text-orange-100">{featuredReading.studentInfo.emailId}</span></p>}
+                  {featuredReading.studentInfo?.emailId && <p className="break-all text-sm text-orange-100/75">Email: <span className="font-mono text-orange-100">{featuredReading.studentInfo.emailId}</span></p>}
                   <p className="font-mono text-xs text-orange-100/65">{featuredReading.entryState} time: {featuredTime}</p>
                   {manualReading && <Button onClick={() => setManualReading(null)} size="sm" variant="outline" className="mt-1 border-orange-300/30 bg-orange-300/10 text-orange-100 hover:bg-orange-300/20 hover:text-white">Show live latest</Button>}
                 </div>
@@ -379,25 +379,25 @@ export function QrBiometricDashboard() {
             ) : (
               <p className="font-mono text-xl font-semibold leading-snug text-orange-100">No QR data yet</p>
             )}
-            <p className="mt-4 text-xs text-orange-100/70">Device: <span className="font-mono text-orange-100">{featuredReading?.deviceId ?? "--"}</span></p>
+            <p className="mt-4 break-all text-xs text-orange-100/70">Device: <span className="font-mono text-orange-100">{featuredReading?.deviceId ?? "--"}</span></p>
           </div>
 
           <div className="grid gap-3">
-            <div className="rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
+            <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Total Scans</p>
               <p className="mt-2 inline-flex items-center gap-2 font-mono text-xl text-orange-100"><Database className="h-4 w-4" />{data.stats.totalScans}</p>
             </div>
-            <div className="rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
+            <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Unique QR Codes</p>
               <p className="mt-2 inline-flex items-center gap-2 font-mono text-xl text-orange-100"><QrCode className="h-4 w-4" />{data.stats.uniqueCodes}</p>
             </div>
-            <div className="rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
+            <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Verification Stage</p>
-              <p className="mt-2 inline-flex items-center gap-2 font-mono text-sm text-orange-100/90"><ShieldCheck className="h-4 w-4" />Decode stored</p>
+              <p className="mt-2 inline-flex min-w-0 items-center gap-2 font-mono text-sm text-orange-100/90"><ShieldCheck className="h-4 w-4 shrink-0" />Decode stored</p>
             </div>
-            <div className="rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
+            <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Last Update</p>
-              <p className="mt-2 inline-flex items-center gap-2 font-mono text-base text-orange-100/90"><Clock3 className="h-4 w-4" />{manualReading ? featuredTime : actualLatestTime}</p>
+              <p className="mt-2 inline-flex min-w-0 items-center gap-2 font-mono text-base text-orange-100/90"><Clock3 className="h-4 w-4 shrink-0" />{manualReading ? featuredTime : actualLatestTime}</p>
               <p className="mt-1 text-xs text-orange-100/60">{relativeSeconds(data.health.lastSeenSeconds)}</p>
             </div>
           </div>

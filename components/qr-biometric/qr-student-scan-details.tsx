@@ -81,11 +81,11 @@ export function QrStudentSummary({ reading }: { reading: QrBiometricReading }) {
   if (!reading.studentInfo) return <span className="font-mono text-xs text-muted-foreground">QR payload stored securely</span>
 
   return (
-    <div className="flex min-w-[280px] items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3 sm:min-w-[280px]">
       <QrStudentAvatar reading={reading} />
       <div className="min-w-0 space-y-1">
-        <p className="font-semibold text-foreground">{qrStudentDisplayName(reading)}</p>
-        <p className="text-xs text-muted-foreground">{[reading.studentInfo.enrollmentNo, reading.studentInfo.year, reading.studentInfo.emailId].filter(Boolean).join(" | ")}</p>
+        <p className="truncate font-semibold text-foreground">{qrStudentDisplayName(reading)}</p>
+        <p className="truncate text-xs text-muted-foreground">{[reading.studentInfo.enrollmentNo, reading.studentInfo.year, reading.studentInfo.emailId].filter(Boolean).join(" | ")}</p>
       </div>
     </div>
   )
@@ -147,8 +147,8 @@ export function QrStudentInfoPanel({ reading }: { reading: QrBiometricReading })
         <div className="flex min-w-0 items-center gap-4">
           <QrStudentAvatar reading={reading} size="lg" />
           <div className="min-w-0">
-            <p className="text-sm font-bold text-foreground">{qrStudentDisplayName(reading)}</p>
-            <p className="text-xs font-semibold text-muted-foreground">Enrollment: {info.enrollmentNo ?? "--"}</p>
+            <p className="break-words text-sm font-bold text-foreground">{qrStudentDisplayName(reading)}</p>
+            <p className="break-words text-xs font-semibold text-muted-foreground">Enrollment: {info.enrollmentNo ?? "--"}</p>
             <p className="text-xs text-muted-foreground">Scraped DOSW StudentProxy profile</p>
             <QrDecodedPayloadLink reading={reading} className="mt-2 text-[11px]" />
           </div>
