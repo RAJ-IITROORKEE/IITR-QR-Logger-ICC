@@ -316,8 +316,8 @@ export function QrBiometricDashboard() {
         </DialogContent>
       </Dialog>
 
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="min-w-0 rounded-2xl border border-orange-500/45 bg-orange-500/5 p-4">
+      <section className="mobile-paint-stable grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mobile-paint-stable min-w-0 rounded-2xl border border-orange-500/45 bg-orange-500/5 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Latest Event</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <QrCode className="h-5 w-5 shrink-0 text-orange-500" />
@@ -326,17 +326,17 @@ export function QrBiometricDashboard() {
           </div>
           <p className="mt-1 line-clamp-1 break-all text-xs text-muted-foreground">{featuredReading ? qrStudentDisplayName(featuredReading) : "No scan yet"}</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-border bg-card/80 p-4">
+        <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Total Logs</p>
           <p className="text-2xl font-bold tabular-nums">{data.stats.totalScans}</p>
           <p className="mt-1 text-xs text-muted-foreground">IN {data.stats.currentIn} · OUT {data.stats.currentOut}</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-border bg-card/80 p-4">
+        <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Devices</p>
           <p className="text-2xl font-bold tabular-nums text-orange-500">{data.stats.uniqueDevices}</p>
           <p className="mt-1 text-xs text-muted-foreground">Student profiles: {data.stats.scrapedStudents}</p>
         </div>
-        <div className="min-w-0 rounded-2xl border border-border bg-card/80 p-4">
+        <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Device Health</p>
           <div className="mt-1 flex items-center gap-2">
             {online ? <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-500"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>LIVE</span> : <span className="flex items-center gap-1.5 text-sm font-bold text-red-500"><WifiOff className="h-3.5 w-3.5" />OFFLINE</span>}
@@ -345,7 +345,7 @@ export function QrBiometricDashboard() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-3xl border border-orange-500/45 bg-[#120b07] p-5 shadow-[0_0_0_1px_rgba(251,146,60,0.18),0_24px_52px_-28px_rgba(249,115,22,0.72)]">
+      <section className="mobile-paint-stable overflow-hidden rounded-3xl border border-orange-500/45 bg-[#120b07] p-5 shadow-[0_0_0_1px_rgba(251,146,60,0.18),0_24px_52px_-28px_rgba(249,115,22,0.72)]">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-orange-100/90">QRBiometric Live Feed</p>

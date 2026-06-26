@@ -207,8 +207,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AdminAppSidebar />
-      <SidebarInset className="bg-background/70 backdrop-blur-sm">
-        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/85 backdrop-blur transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-14">
+      <SidebarInset className="mobile-no-blur bg-background/80 md:bg-background/70 md:backdrop-blur-sm">
+        <header className="mobile-no-blur sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 transition-[width,height] ease-linear md:bg-background/85 md:backdrop-blur group-has-data-[collapsible=icon]/sidebar-wrapper:h-14">
           <div className="flex flex-1 items-center gap-2 px-4 lg:px-6">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
@@ -239,7 +239,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <main className="flex flex-1 flex-col gap-4 p-4 pt-4 lg:p-6">
           <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">{children}</div>
         </main>
-        <footer className="border-t bg-background/70 px-4 py-3 text-xs text-muted-foreground backdrop-blur">
+        <footer className="mobile-no-blur border-t bg-background/90 px-4 py-3 text-xs text-muted-foreground md:bg-background/70 md:backdrop-blur">
           <div className="mx-auto grid w-full max-w-7xl items-center gap-3 text-center sm:grid-cols-[1fr_auto_1fr]">
             <span className="hidden sm:block" />
             <p className="justify-self-center">

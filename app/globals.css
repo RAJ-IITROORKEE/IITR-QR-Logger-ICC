@@ -147,6 +147,23 @@
     background-image: linear-gradient(180deg, var(--page-gradient-from), var(--page-gradient-to));
     background-attachment: fixed;
   }
+
+  @media (max-width: 767px) {
+    body {
+      background-attachment: scroll;
+    }
+
+    .mobile-no-blur {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+
+    .mobile-paint-stable {
+      backface-visibility: hidden;
+      contain: layout paint;
+      isolation: isolate;
+    }
+  }
   h1,
   h2,
   h3,
