@@ -62,8 +62,8 @@ type NavItem = {
 
 const primaryLinks: NavItem[] = [
   { href: "/admin", label: "Dashboard", description: "Daily and monthly scan overview", icon: LayoutDashboard },
-  { href: "/admin/logs", label: "Logs", description: "Search, sort, delete, and clear records", icon: Logs },
   { href: "/admin/analytics", label: "Analytics", description: "Device summaries and entry timelines", icon: BarChart3 },
+  { href: "/admin/logs", label: "Logs", description: "Search, sort, delete, and clear records", icon: Logs },
   { href: "/admin/access", label: "Access", description: "Create and update staff credentials", icon: KeyRound },
   { href: "/admin/support", label: "Support", description: "User issues and enquiries", icon: Headphones },
   { href: "/admin/settings", label: "Settings", description: "Devices and API endpoint details", icon: Settings },

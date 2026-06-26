@@ -324,6 +324,19 @@ function buildAnalysis(readings: QrBiometricReading[]) {
   }
 }
 
+function withBestStudentProfile(target: QrBiometricReading, source: QrBiometricReading): QrBiometricReading {
+  if (!source.studentInfo) return target
+  if (!target.studentInfo) {
+    return { ...target, studentInfo: source.studentInfo, studentInfoStatus: source.studentInfoStatus, studentInfoError: source.studentInfoError }
+  }
+  if (target.studentInfo.photoUrl || !source.studentInfo.photoUrl) return target
+
+  return {
+    ...target,
+    studentInfo: { ...source.studentInfo, ...target.studentInfo, photoUrl: source.studentInfo.photoUrl },
+  }
+}
+
 function buildStudentSummaries(readings: QrBiometricReading[]): QrBiometricStudentSummary[] {
   const students = new Map<string, QrBiometricStudentSummary>()
 
@@ -342,6 +355,7 @@ function buildStudentSummaries(readings: QrBiometricReading[]): QrBiometricStude
       if (!existing.emailId && reading.studentInfo?.emailId) existing.emailId = reading.studentInfo.emailId
       if (!existing.bhawan && reading.studentInfo?.bhawan) existing.bhawan = reading.studentInfo.bhawan
       if (existing.displayName === existing.latestReading.decodedData && reading.studentInfo?.fullName) existing.displayName = reading.studentInfo.fullName
+      existing.latestReading = withBestStudentProfile(existing.latestReading, reading)
       continue
     }
 
