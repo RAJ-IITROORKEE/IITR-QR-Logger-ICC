@@ -6,7 +6,7 @@ import { resolveDeviceMacRegistration } from "@/lib/device-mac-registration"
 import { verifyDeviceApiKey } from "@/lib/device-api-key"
 import { addDoswStudentPhotoFallback, extractStudentInfo, isDoswStudentUrl, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
-import type { QrBiometricReading, QrEntryState, QrStudentInfo, QrStudentInfoStatus } from "@/types/qr-biometric"
+import type { QrBiometricReading, QrBiometricStudentSummary, QrEntryState, QrStudentInfo, QrStudentInfoStatus } from "@/types/qr-biometric"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -24,7 +24,7 @@ const RECEIVER_ENDPOINT = "/api/qr-biometric-icc"
 const MANUAL_DEVICE_ID = "MANUAL"
 
 type DbSaveStatus = "saved" | "queued"
-type SortKey = "createdAt" | "deviceId" | "entryState" | "characterCount"
+type SortKey = "createdAt" | "deviceId" | "entryState" | "scanStatus" | "characterCount"
 type SortOrder = "asc" | "desc"
 type AuthenticatedDevice = {
   id: string
@@ -75,7 +75,7 @@ function parsePositiveInt(value: string | null, fallback: number, max: number): 
 }
 
 function parseSort(value: string | null): SortKey {
-  if (value === "deviceId" || value === "entryState" || value === "characterCount") return value
+  if (value === "deviceId" || value === "entryState" || value === "scanStatus" || value === "characterCount") return value
   return "createdAt"
 }
 
@@ -320,7 +320,50 @@ function buildAnalysis(readings: QrBiometricReading[]) {
     latestStudentInfo: latest?.studentInfo ?? null,
     deviceSummaries: Array.from(deviceMap.values()).sort((a, b) => new Date(b.lastScanAt).getTime() - new Date(a.lastScanAt).getTime()),
     entryTimeline: Array.from(timeline.values()).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 31),
+    studentSummaries: buildStudentSummaries(readings),
   }
+}
+
+function buildStudentSummaries(readings: QrBiometricReading[]): QrBiometricStudentSummary[] {
+  const students = new Map<string, QrBiometricStudentSummary>()
+
+  for (const reading of readings) {
+    const enrollment = normalizeEnrollment(reading.studentInfo?.enrollmentNo ?? null)
+    const key = enrollment || reading.decodedUrl || reading.decodedData
+    const existing = students.get(key)
+
+    if (existing) {
+      existing.totalLogs += 1
+      existing.inCount += reading.entryState === "IN" ? 1 : 0
+      existing.outCount += reading.entryState === "OUT" ? 1 : 0
+      existing.logs.push(reading)
+      if (new Date(reading.timestamp) < new Date(existing.firstSeenAt)) existing.firstSeenAt = reading.timestamp
+      if (!existing.enrollmentNo && reading.studentInfo?.enrollmentNo) existing.enrollmentNo = reading.studentInfo.enrollmentNo
+      if (!existing.emailId && reading.studentInfo?.emailId) existing.emailId = reading.studentInfo.emailId
+      if (!existing.bhawan && reading.studentInfo?.bhawan) existing.bhawan = reading.studentInfo.bhawan
+      if (existing.displayName === existing.latestReading.decodedData && reading.studentInfo?.fullName) existing.displayName = reading.studentInfo.fullName
+      continue
+    }
+
+    const info = reading.studentInfo
+    students.set(key, {
+      id: key,
+      displayName: info?.fullName ?? info?.enrollmentNo ?? reading.decodedData,
+      enrollmentNo: info?.enrollmentNo ?? null,
+      emailId: info?.emailId ?? null,
+      bhawan: info?.bhawan ?? null,
+      latestState: reading.entryState,
+      totalLogs: 1,
+      inCount: reading.entryState === "IN" ? 1 : 0,
+      outCount: reading.entryState === "OUT" ? 1 : 0,
+      firstSeenAt: reading.timestamp,
+      lastSeenAt: reading.timestamp,
+      latestReading: reading,
+      logs: [reading],
+    })
+  }
+
+  return Array.from(students.values()).sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
 }
 
 function applySearch(readings: QrBiometricReading[], search: string) {

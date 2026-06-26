@@ -54,6 +54,22 @@ export interface QrBiometricDeviceSummary {
   lastScanAt: string
 }
 
+export interface QrBiometricStudentSummary {
+  id: string
+  displayName: string
+  enrollmentNo: string | null
+  emailId: string | null
+  bhawan: string | null
+  latestState: QrEntryState
+  totalLogs: number
+  inCount: number
+  outCount: number
+  firstSeenAt: string
+  lastSeenAt: string
+  latestReading: QrBiometricReading
+  logs: QrBiometricReading[]
+}
+
 export interface QrBiometricAnalysis extends QrBiometricStats {
   latestDecodedData: string | null
   latestDeviceId: string | null
@@ -62,6 +78,7 @@ export interface QrBiometricAnalysis extends QrBiometricStats {
   latestStudentInfo: QrStudentInfo | null
   deviceSummaries: QrBiometricDeviceSummary[]
   entryTimeline: Array<{ date: string; total: number; inCount: number; outCount: number }>
+  studentSummaries: QrBiometricStudentSummary[]
 }
 
 export interface QrBiometricApiResponse {
