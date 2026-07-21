@@ -43,6 +43,10 @@ export interface QrBiometricStats {
   currentOut: number
   scrapedStudents: number
   dailyScans: number
+  dailyIn: number
+  dailyOut: number
+  qrDeviceScans: number
+  manualScans: number
   monthlyScans: number
   lastScanAt: string | null
   avgCharacters: number | null

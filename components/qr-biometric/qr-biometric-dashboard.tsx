@@ -20,12 +20,23 @@ interface QrApiResponse {
     currentIn: number
     currentOut: number
     scrapedStudents: number
+    dailyIn: number
+    dailyOut: number
+    qrDeviceScans: number
+    manualScans: number
     dailyScans?: number
     monthlyScans?: number
   }
   health: {
     status: "online" | "offline"
     lastSeenSeconds: number | null
+  }
+  pagination: {
+    page: number
+    totalPages: number
+    total: number
+    hasNextPage: boolean
+    hasPrevPage: boolean
   }
   manualLookup?: {
     enrollment: string
@@ -54,12 +65,23 @@ const emptyData: QrApiResponse = {
     currentIn: 0,
     currentOut: 0,
     scrapedStudents: 0,
+    dailyIn: 0,
+    dailyOut: 0,
+    qrDeviceScans: 0,
+    manualScans: 0,
     dailyScans: 0,
     monthlyScans: 0,
   },
   health: {
     status: "offline",
     lastSeenSeconds: null,
+  },
+  pagination: {
+    page: 1,
+    totalPages: 1,
+    total: 0,
+    hasNextPage: false,
+    hasPrevPage: false,
   },
 }
 
@@ -94,6 +116,7 @@ export function QrBiometricDashboard() {
   const [data, setData] = useState<QrApiResponse>(emptyData)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
   const [manualOpen, setManualOpen] = useState(false)
   const [manualEnrollment, setManualEnrollment] = useState("")
   const [manualLoading, setManualLoading] = useState(false)
@@ -104,7 +127,7 @@ export function QrBiometricDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ limit: "12" })
+      const params = new URLSearchParams({ limit: "12", page: String(page) })
       if (search.trim()) params.set("search", search.trim())
       const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store" })
       if (!response.ok) return
@@ -113,7 +136,7 @@ export function QrBiometricDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [search])
+  }, [page, search])
 
   useEffect(() => {
     void fetchData()
@@ -327,14 +350,31 @@ export function QrBiometricDashboard() {
           <p className="mt-1 line-clamp-1 break-all text-xs text-muted-foreground">{featuredReading ? qrStudentDisplayName(featuredReading) : "No scan yet"}</p>
         </div>
         <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
-          <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Total Logs</p>
-          <p className="text-2xl font-bold tabular-nums">{data.stats.totalScans}</p>
-          <p className="mt-1 text-xs text-muted-foreground">IN {data.stats.currentIn} · OUT {data.stats.currentOut}</p>
+          <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Today&apos;s Logs</p>
+          <p className="text-2xl font-bold tabular-nums">{data.stats.dailyScans ?? 0}</p>
+          <p className="mt-1 text-xs text-muted-foreground">IN {data.stats.dailyIn} · OUT {data.stats.dailyOut}</p>
         </div>
         <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
-          <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Devices</p>
-          <p className="text-2xl font-bold tabular-nums text-orange-500">{data.stats.uniqueDevices}</p>
-          <p className="mt-1 text-xs text-muted-foreground">Student profiles: {data.stats.scrapedStudents}</p>
+          <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Total Logs</p>
+          <p className="text-2xl font-bold tabular-nums text-orange-500">{data.stats.totalScans}</p>
+          <div className="mt-3" aria-label={`QR device scans: ${data.stats.qrDeviceScans}; manual scans: ${data.stats.manualScans}`}>
+            <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" role="img" aria-label="QR device and manual scan distribution">
+              <div
+                title={`QR device scans: ${data.stats.qrDeviceScans}`}
+                className="h-full bg-orange-500 transition-all duration-500"
+                style={{ width: `${data.stats.totalScans ? (data.stats.qrDeviceScans / data.stats.totalScans) * 100 : 0}%` }}
+              />
+              <div
+                title={`Manual scans: ${data.stats.manualScans}`}
+                className="h-full bg-orange-200 transition-all duration-500"
+                style={{ width: `${data.stats.totalScans ? (data.stats.manualScans / data.stats.totalScans) * 100 : 0}%` }}
+              />
+            </div>
+            <div className="mt-2 flex justify-between gap-2 text-[10px] text-muted-foreground">
+              <span title={`QR device scans: ${data.stats.qrDeviceScans}`}><span className="mr-1 inline-block size-1.5 rounded-full bg-orange-500" />QR device {data.stats.qrDeviceScans}</span>
+              <span title={`Manual scans: ${data.stats.manualScans}`}><span className="mr-1 inline-block size-1.5 rounded-full bg-orange-200" />Manual {data.stats.manualScans}</span>
+            </div>
+          </div>
         </div>
         <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Device Health</p>
@@ -412,7 +452,7 @@ export function QrBiometricDashboard() {
           </div>
           <div className="relative w-full sm:w-72">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setLoading(true); void fetchData() } }} placeholder="Search logs" className="w-full rounded-xl border border-border bg-background/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20" />
+            <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }} onKeyDown={(event) => { if (event.key === "Enter") { setLoading(true); void fetchData() } }} placeholder="Search logs" className="w-full rounded-xl border border-border bg-background/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20" />
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -444,6 +484,13 @@ export function QrBiometricDashboard() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4 text-sm text-muted-foreground">
+          <span>Page {data.pagination.page} of {data.pagination.totalPages} | {data.pagination.total} logs (maximum 100)</span>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={!data.pagination.hasPrevPage} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</Button>
+            <Button variant="outline" disabled={!data.pagination.hasNextPage} onClick={() => setPage((value) => value + 1)}>Next</Button>
+          </div>
         </div>
       </section>
     </main>

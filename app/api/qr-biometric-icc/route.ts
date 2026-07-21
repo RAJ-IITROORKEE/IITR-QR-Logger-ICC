@@ -13,6 +13,7 @@ export const revalidate = 0
 
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 200
+const PUBLIC_LOG_LIMIT = 100
 const MAX_FETCH_LIMIT = 5000
 const MAX_BUFFER_SIZE = 500
 const MAX_PENDING_QUEUE = 500
@@ -41,6 +42,11 @@ const pendingWriteQueue: QrBiometricReading[] = []
 async function hasDashboardAccess(request: NextRequest) {
   if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
   return verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value)
+}
+
+async function hasAdminReadAccess(request: NextRequest) {
+  if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
+  return verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value, ADMIN_ACCESS_ROLES)
 }
 
 function parseText(value: unknown): string | null {
@@ -157,16 +163,24 @@ async function fetchStudentInfo(decodedData: string): Promise<{ status: QrStuden
 }
 
 async function resolveEntryState(decodedData: string): Promise<QrEntryState> {
+  const latestMemoryReading = [...liveReadingsBuffer, ...pendingWriteQueue]
+    .filter((reading) => reading.decodedData === decodedData)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0]
+
   try {
     const latest = await prisma.qrBiometricReading.findFirst({
       where: { decodedData },
       orderBy: { createdAt: "desc" },
-      select: { entryState: true },
+      select: { entryState: true, createdAt: true },
     })
-    return normalizeEntryState(latest?.entryState) === "IN" ? "OUT" : "IN"
+
+    if (!latest && !latestMemoryReading) return "IN"
+    const memoryIsNewer = Boolean(latestMemoryReading && (!latest || new Date(latestMemoryReading.timestamp) > latest.createdAt))
+    const latestState = memoryIsNewer ? latestMemoryReading!.entryState : normalizeEntryState(latest?.entryState)
+    return latestState === "IN" ? "OUT" : "IN"
   } catch (error) {
     console.error("[qr-biometric] Failed to resolve entry state", error)
-    return "IN"
+    return latestMemoryReading ? (latestMemoryReading.entryState === "IN" ? "OUT" : "IN") : "IN"
   }
 }
 
@@ -283,6 +297,10 @@ function buildStats(readings: QrBiometricReading[]) {
     currentOut: Array.from(latestStateByCode.values()).filter((state) => state === "OUT").length,
     scrapedStudents: readings.filter((r) => r.studentInfoStatus === "scraped").length,
     dailyScans: readings.filter((r) => sameUtcDay(new Date(r.timestamp))).length,
+    dailyIn: readings.filter((r) => sameUtcDay(new Date(r.timestamp)) && r.entryState === "IN").length,
+    dailyOut: readings.filter((r) => sameUtcDay(new Date(r.timestamp)) && r.entryState === "OUT").length,
+    qrDeviceScans: readings.filter((r) => r.deviceId !== MANUAL_DEVICE_ID).length,
+    manualScans: readings.filter((r) => r.deviceId === MANUAL_DEVICE_ID).length,
     monthlyScans: readings.filter((r) => sameUtcMonth(new Date(r.timestamp))).length,
     lastScanAt: readings[0]?.timestamp ?? null,
     avgCharacters: totalScans > 0 ? Number((totalChars / totalScans).toFixed(1)) : null,
@@ -639,13 +657,16 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url)
-  const limit = parsePositiveInt(searchParams.get("limit"), DEFAULT_LIMIT, MAX_LIMIT)
+  const adminReadAccess = await hasAdminReadAccess(request)
+  const limit = parsePositiveInt(searchParams.get("limit"), DEFAULT_LIMIT, adminReadAccess ? MAX_LIMIT : PUBLIC_LOG_LIMIT)
   const page = parsePositiveInt(searchParams.get("page"), 1, Number.MAX_SAFE_INTEGER)
   const deviceId = parseText(searchParams.get("deviceId"))
   const search = parseText(searchParams.get("search")) ?? ""
   const manualEnrollment = parseText(searchParams.get("manualEnrollment"))
-  const sort = parseSort(searchParams.get("sort"))
-  const order = parseOrder(searchParams.get("order"))
+  const requestedSort = parseSort(searchParams.get("sort"))
+  const requestedOrder = parseOrder(searchParams.get("order"))
+  const sort = adminReadAccess ? requestedSort : "createdAt"
+  const order = adminReadAccess ? requestedOrder : "desc"
   const month = searchParams.get("month")
   const monthRange = parseMonthRange(month)
   const from = monthRange?.start ?? parseDate(searchParams.get("from"))
@@ -662,7 +683,9 @@ export async function GET(request: NextRequest) {
   try {
     const records = await prisma.qrBiometricReading.findMany({
       where,
-      orderBy: sort === "createdAt" ? { createdAt: order } : [{ [sort]: order }, { createdAt: "desc" }],
+      orderBy: adminReadAccess
+        ? sort === "createdAt" ? { createdAt: order } : [{ [sort]: order }, { createdAt: "desc" }]
+        : { createdAt: "desc" },
       take: MAX_FETCH_LIMIT,
     })
     dbReadings = records.map(toApiReading)
@@ -673,13 +696,16 @@ export async function GET(request: NextRequest) {
 
   const liveReadings = filterLiveReadings(liveReadingsBuffer, deviceId, from, to)
   const merged = mergeReadings(dbReadings, liveReadings)
-  const searched = applySearch(merged, search)
+  const accessibleReadings = adminReadAccess ? merged : merged.slice(0, PUBLIC_LOG_LIMIT)
+  const searched = applySearch(accessibleReadings, search)
   const sorted = sortReadings(searched, sort, order)
   const paginated = paginateReadings(sorted, page, limit)
-  const analysis = buildAnalysis(merged)
+  const analysis = buildAnalysis(accessibleReadings)
   const stats = buildStats(merged)
-  const latest = merged[0] ?? null
-  const manualMatch = findReadingByEnrollment(merged, manualEnrollment)
+  const latest = accessibleReadings[0] ?? null
+  const manualMatch = manualEnrollment
+    ? (await findStoredReadingByEnrollment(manualEnrollment).catch(() => null)) ?? findReadingByEnrollment(accessibleReadings, manualEnrollment)
+    : null
   const manualCurrentStatus = manualMatch?.entryState ?? null
   const manualDefaultEntryState = manualCurrentStatus ? nextEntryState(manualCurrentStatus) : null
   const lastSeenSeconds = latest ? Math.max(0, Math.floor((Date.now() - new Date(latest.timestamp).getTime()) / 1000)) : null
