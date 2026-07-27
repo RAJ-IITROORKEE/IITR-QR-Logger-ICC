@@ -20,8 +20,8 @@
 # production
 /build
 
-# local hardware sketches
-arduino_code/
+# local hardware credentials
+arduino_code/**/secrets.h
 
 # misc
 .DS_Store

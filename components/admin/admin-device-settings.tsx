@@ -9,8 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
-const API_ENDPOINT = "https://qr-logger-icc.vercel.app/api/qr-biometric-icc"
-const DASHBOARD_URL = "https://qr-logger-icc.vercel.app"
+const API_ENDPOINT = "https://iitrlogger.com/api/qr-biometric-icc"
+const DASHBOARD_URL = "https://iitrlogger.com"
 
 type DeviceRecord = {
   id: string
@@ -104,10 +104,27 @@ async function copyText(value: string) {
 export function AdminDeviceSettings({ initialData }: { initialData: SettingsData }) {
   const [devices, setDevices] = useState(initialData.registeredDevices)
   const [deviceName, setDeviceName] = useState("")
+  const [deviceNumber, setDeviceNumber] = useState("")
+  const [macAddress, setMacAddress] = useState("")
   const [generated, setGenerated] = useState<GeneratedKey | null>(null)
   const [error, setError] = useState(initialData.error)
   const [pending, setPending] = useState(false)
   const lockedMacCount = devices.filter((device) => device.macAddress).length
+
+  async function refreshDevices() {
+    setPending(true)
+    setError(null)
+    try {
+      const response = await fetch("/api/admin/devices", { cache: "no-store" })
+      const result = (await response.json()) as { success?: boolean; error?: string; devices?: DeviceRecord[] }
+      if (!response.ok || !result.success || !result.devices) throw new Error(result.error ?? "Failed to refresh devices")
+      setDevices(result.devices)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to refresh devices")
+    } finally {
+      setPending(false)
+    }
+  }
 
   async function addDevice() {
     const name = deviceName.trim()
@@ -119,7 +136,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
       const response = await fetch("/api/admin/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+         body: JSON.stringify({ name, deviceNumber: deviceNumber.trim() || undefined, macAddress: macAddress.trim() || undefined }),
       })
       const result = (await response.json()) as { success?: boolean; error?: string; device?: DeviceRecord; apiKey?: string }
       if (!response.ok || !result.success || !result.device || !result.apiKey) throw new Error(result.error ?? "Failed to add device")
@@ -127,6 +144,8 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
       setDevices((current) => [result.device as DeviceRecord, ...current])
       setGenerated({ deviceNumber: result.device.deviceNumber, deviceName: result.device.name, apiKey: result.apiKey })
       setDeviceName("")
+      setDeviceNumber("")
+      setMacAddress("")
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to add device")
     } finally {
@@ -214,12 +233,22 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
               <KeyRound className="size-5 text-orange-300" />
               <CardTitle>Add Device</CardTitle>
             </div>
-            <CardDescription>Enter a device name. The system will assign a device ID and generate a one-time API key.</CardDescription>
+             <CardDescription>Provision a unique device ID, optional MAC lock, and one-time API key.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="device-name">Device name</Label>
               <Input id="device-name" value={deviceName} onChange={(event) => setDeviceName(event.target.value)} placeholder="Example: ICC Main Gate Scanner" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="device-number">Device ID</Label>
+              <Input id="device-number" value={deviceNumber} onChange={(event) => setDeviceNumber(event.target.value)} placeholder="QR-102" />
+              <p className="text-xs text-muted-foreground">Use QR-102 or QRB-002. Leave blank to auto-assign.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="device-mac">WiFi MAC address (optional)</Label>
+              <Input id="device-mac" value={macAddress} onChange={(event) => setMacAddress(event.target.value)} placeholder="AA:BB:CC:DD:EE:FF" />
+              <p className="text-xs text-muted-foreground">Pre-locks this device to one board. Leave blank to lock on first secure connection.</p>
             </div>
             <Button disabled={pending} onClick={() => void addDevice()}>
               <KeyRound className="size-4" />
@@ -272,7 +301,8 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
               <Database className="size-5 text-orange-300" />
               <CardTitle>Registered Devices</CardTitle>
             </div>
-            <CardDescription>Regenerate only if a key is leaked or a device is being reprovisioned.</CardDescription>
+            <CardDescription>Each device has its own ID, API key, and optional locked MAC address.</CardDescription>
+            <Button size="sm" variant="outline" onClick={() => void refreshDevices()} disabled={pending}><RefreshCw className={pending ? "size-3.5 animate-spin" : "size-3.5"} />Refresh</Button>
           </CardHeader>
           <CardContent>
             {devices.length === 0 ? (
@@ -374,7 +404,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
               <p className="mt-1 font-mono text-sm">Content-Type: application/json</p>
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
-              The API key can be sent as <span className="font-mono text-foreground">apiKey</span> in JSON or as an <span className="font-mono text-foreground">X-API-Key</span> header. The Arduino code sends both.
+               The API key can be sent as <span className="font-mono text-foreground">apiKey</span> in JSON or as an <span className="font-mono text-foreground">X-API-Key</span> header. The production firmware sends the header.
             </p>
           </CardContent>
         </Card>

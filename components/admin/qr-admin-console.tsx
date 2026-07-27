@@ -391,6 +391,8 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [page, setPage] = useState(1)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const limit = mode === "dashboard" ? 12 : 25
 
   const fetchData = useCallback(async () => {
@@ -416,24 +418,42 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
 
   async function deleteReading(id: string) {
     if (!window.confirm("Delete this QR log?")) return
-    await fetch("/api/qr-biometric-icc", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    })
-    await fetchData()
+    setActionMessage(null)
+    setActionError(null)
+    try {
+      const response = await fetch("/api/qr-biometric-icc", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      })
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; deletedCount?: number }
+      if (!response.ok || !result.success) throw new Error(result.error ?? "The log could not be deleted")
+      setActionMessage(`Deleted ${result.deletedCount ?? 1} log. Device retries for this scan will be rejected.`)
+      await fetchData()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "The log could not be deleted")
+    }
   }
 
   async function clearScopedLogs() {
     const label = month || from || to ? "selected timeline" : "all QR logs"
     if (!window.confirm(`Clear ${label}? This cannot be undone.`)) return
-    await fetch("/api/qr-biometric-icc", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clearAll: true, month: month || undefined, from: from || undefined, to: to || undefined }),
-    })
-    setPage(1)
-    await fetchData()
+    setActionMessage(null)
+    setActionError(null)
+    try {
+      const response = await fetch("/api/qr-biometric-icc", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clearAll: true, month: month || undefined, from: from || undefined, to: to || undefined }),
+      })
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; deletedCount?: number }
+      if (!response.ok || !result.success) throw new Error(result.error ?? "Logs could not be cleared")
+      setActionMessage(`Deleted ${result.deletedCount ?? 0} logs. The selected records are tombstoned against device replay.`)
+      setPage(1)
+      await fetchData()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Logs could not be cleared")
+    }
   }
 
   const title = mode === "dashboard" ? "Admin Dashboard" : mode === "logs" ? "QR Logs" : "Analytics"
@@ -467,6 +487,9 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
           </div>
         </div>
       </section>
+
+      {actionMessage ? <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{actionMessage}</p> : null}
+      {actionError ? <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{actionError}</p> : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Daily Logs" value={data.stats.dailyScans ?? 0} caption="Scans captured today" />

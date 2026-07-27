@@ -25,6 +25,17 @@ model QrBiometricReading {
   @@map("qr_biometric_readings")
 }
 
+model QrBiometricDeletion {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  scanId      String   @unique
+  deviceId    String
+  decodedData String
+  deletedAt   DateTime @default(now())
+
+  @@index([deviceId, deletedAt])
+  @@map("qr_biometric_deletions")
+}
+
 model SupportInquiry {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   name      String

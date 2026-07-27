@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
 import { generateDeviceApiKey, hashDeviceApiKey, previewDeviceApiKey } from "@/lib/device-api-key"
+import { normalizeMacAddress } from "@/lib/device-mac-registration"
+import { normalizeDeviceNumber } from "@/lib/device-provisioning"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -67,24 +69,64 @@ function toApiDevice(device: {
 export async function POST(request: NextRequest) {
   if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
 
-  const body = (await request.json().catch(() => null)) as { name?: unknown } | null
+  const body = (await request.json().catch(() => null)) as { name?: unknown; deviceNumber?: unknown; macAddress?: unknown } | null
   const name = readText(body?.name)
   if (!name) return NextResponse.json({ success: false, error: "Device name is required" }, { status: 400 })
 
-  const apiKey = generateDeviceApiKey()
-  const device = await prisma.device.create({
-    data: {
-      deviceNumber: await nextDeviceNumber(),
-      name,
-      projectType: "qr-biometric",
-      location: "ICC, IIT Roorkee",
-      apiKeyHash: hashDeviceApiKey(apiKey),
-      apiKeyPreview: previewDeviceApiKey(apiKey),
-      apiKeyCreatedAt: new Date(),
-    },
-  })
+  const requestedDeviceNumber = body?.deviceNumber == null ? null : normalizeDeviceNumber(body.deviceNumber)
+  if (body?.deviceNumber != null && !requestedDeviceNumber) {
+    return NextResponse.json({ success: false, error: "Invalid device ID. Use QR-102 or QRB-002 format." }, { status: 400 })
+  }
 
-  return NextResponse.json({ success: true, device: toApiDevice(device), apiKey })
+  const requestedMac = body?.macAddress == null || readText(body.macAddress) === "" ? null : normalizeMacAddress(body.macAddress)
+  if (body?.macAddress != null && !requestedMac) {
+    return NextResponse.json({ success: false, error: "Invalid MAC address." }, { status: 400 })
+  }
+
+  const deviceNumber = requestedDeviceNumber ?? await nextDeviceNumber()
+  const existingDevice = await prisma.device.findFirst({
+    where: {
+      projectType: "qr-biometric",
+      OR: [
+        { deviceNumber },
+        ...(requestedMac ? [{ macAddress: requestedMac }] : []),
+      ],
+    },
+    select: { deviceNumber: true, macAddress: true },
+  })
+  if (existingDevice) {
+    const duplicate = existingDevice.deviceNumber === deviceNumber ? `Device ID ${deviceNumber} is already registered.` : `MAC address is already locked to ${existingDevice.deviceNumber}.`
+    return NextResponse.json({ success: false, error: duplicate }, { status: 409 })
+  }
+
+  const apiKey = generateDeviceApiKey()
+  try {
+    const now = new Date()
+    const device = await prisma.device.create({
+      data: {
+        deviceNumber,
+        name,
+        projectType: "qr-biometric",
+        location: "ICC, IIT Roorkee",
+        apiKeyHash: hashDeviceApiKey(apiKey),
+        apiKeyPreview: previewDeviceApiKey(apiKey),
+        apiKeyCreatedAt: now,
+        ...(requestedMac ? { macAddress: requestedMac, macAddressLockedAt: now } : {}),
+      },
+    })
+
+    return NextResponse.json({ success: true, device: toApiDevice(device), apiKey })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create device"
+    return NextResponse.json({ success: false, error: message.includes("Unique constraint") ? "Device ID or MAC address is already registered." : message }, { status: 409 })
+  }
+}
+
+export async function GET(request: NextRequest) {
+  if (!(await requireAdmin(request))) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+
+  const devices = await prisma.device.findMany({ where: { projectType: "qr-biometric" }, orderBy: { createdAt: "desc" } })
+  return NextResponse.json({ success: true, devices: devices.map(toApiDevice) })
 }
 
 export async function PATCH(request: NextRequest) {
