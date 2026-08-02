@@ -30,6 +30,7 @@ export interface QrBiometricReading {
   entryState: QrEntryState
   characterCount: number
   studentInfo: QrStudentInfo | null
+  studentPhotoUrl: string | null
   studentInfoStatus: QrStudentInfoStatus
   studentInfoError: string | null
   timestamp: string

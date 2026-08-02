@@ -15,6 +15,7 @@ model QrBiometricReading {
   entryState        String   @default("IN")
   characterCount    Int      @default(0)
   studentInfo       Json?
+  studentPhotoUrl   String?
   studentInfoStatus String   @default("not_applicable")
   studentInfoError  String?
   createdAt         DateTime @default(now())

@@ -15,7 +15,7 @@ function loadTypeScriptModule(filePath) {
 }
 
 const { extractStudentInfo } = loadTypeScriptModule("./lib/qr-biometric-student.ts")
-const { applyKnownStudentProfile } = loadTypeScriptModule("./lib/qr-biometric-profile.ts")
+const { applyKnownStudentProfile, enrichWithKnownStudentProfiles } = loadTypeScriptModule("./lib/qr-biometric-profile.ts")
 
 test("extracts DOSW profile fields from table text and input values", () => {
   const html = `
@@ -53,4 +53,18 @@ test("reuses known student data while preserving the current scrape failure", ()
   assert.equal(enriched.studentInfo.enrollmentNo, "22110001")
   assert.equal(enriched.studentInfoStatus, "failed")
   assert.equal(enriched.studentInfoError, "Student profile timed out")
+})
+
+test("combines the richest known profile with a stored photo from another reading", () => {
+  const decodedData = "https://dosw.iitr.ac.in/StudentProxy.aspx?id=test"
+  const readings = [
+    { decodedData, studentInfo: null, studentPhotoUrl: null },
+    { decodedData, studentInfo: { fullName: "Test Student", enrollmentNo: "22110001", emailId: "student@iitr.ac.in" }, studentPhotoUrl: null },
+    { decodedData, studentInfo: { enrollmentNo: "22110001" }, studentPhotoUrl: "https://store.private.blob.vercel-storage.com/student-photos/a.jpg" },
+  ]
+
+  const [enriched] = enrichWithKnownStudentProfiles(readings)
+  assert.equal(enriched.studentInfo.fullName, "Test Student")
+  assert.equal(enriched.studentInfo.emailId, "student@iitr.ac.in")
+  assert.equal(enriched.studentPhotoUrl, "https://store.private.blob.vercel-storage.com/student-photos/a.jpg")
 })

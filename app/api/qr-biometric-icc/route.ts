@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { after } from "next/server"
 
 import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
@@ -7,6 +8,8 @@ import { verifyDeviceApiKey } from "@/lib/device-api-key"
 import { matchesScanDelivery, resolveScanId } from "@/lib/qr-biometric-delivery"
 import { matchesDeletionScope } from "@/lib/qr-biometric-deletion"
 import { enrichWithKnownStudentProfiles } from "@/lib/qr-biometric-profile"
+import { isStoredStudentPhotoUrl } from "@/lib/qr-biometric-photo"
+import { fetchAndStoreStudentPhoto } from "@/lib/qr-biometric-photo-storage"
 import { isSameReportingDay, isSameReportingMonth, parseReportingDateBoundary, parseReportingMonthRange, QR_REPORTING_TIME_ZONE, reportingDateKey } from "@/lib/qr-biometric-reporting"
 import { addDoswStudentPhotoFallback, extractStudentInfo, isDoswStudentUrl, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
@@ -39,6 +42,7 @@ type AuthenticatedDevice = {
   macAddressLockedAt: Date | null
 }
 type DeviceAuthResult = { ok: true; error: null; device: AuthenticatedDevice } | { ok: false; error: string }
+type StudentProfileFetch = { status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null; studentPhotoUrl?: string; photoCookie?: string; profileUrl?: string }
 
 const liveReadingsBuffer: QrBiometricReading[] = []
 const pendingWriteQueue: QrBiometricReading[] = []
@@ -123,7 +127,7 @@ function toStoredStudentInfo(info: QrStudentInfo | null): Record<string, string>
   return Object.keys(stored).length > 0 ? stored : undefined
 }
 
-async function fetchStudentInfo(decodedData: string): Promise<{ status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null }> {
+async function fetchStudentInfo(decodedData: string): Promise<StudentProfileFetch> {
   const profileUrl = normalizeDecodedUrl(decodedData)
   if (!profileUrl || !isDoswStudentUrl(profileUrl)) return { status: "not_applicable", info: null, error: null }
 
@@ -146,9 +150,13 @@ async function fetchStudentInfo(decodedData: string): Promise<{ status: QrStuden
       return { status: "failed", info: null, error: "Student profile response was not HTML" }
     }
 
+    const cookies = typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [response.headers.get("set-cookie")].filter((cookie): cookie is string => Boolean(cookie))
+    const photoCookie = cookies.map((cookie) => cookie.split(";")[0]).join("; ") || undefined
     const info = extractStudentInfo(await response.text(), profileUrl)
     if (!hasUsefulStudentInfo(info)) return { status: "failed", info: null, error: "Student profile did not contain readable fields" }
-    return { status: "scraped", info, error: null }
+    return { status: "scraped", info, error: null, photoCookie, profileUrl }
   } catch (error) {
     return { status: "failed", info: null, error: error instanceof Error ? error.message : "Failed to scrape student profile" }
   } finally {
@@ -156,18 +164,26 @@ async function fetchStudentInfo(decodedData: string): Promise<{ status: QrStuden
   }
 }
 
-async function reuseStoredStudentInfo(decodedData: string, profile: { status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null }) {
-  if (profile.info) return profile
-
+async function reuseStoredStudentInfo(decodedData: string, profile: StudentProfileFetch): Promise<StudentProfileFetch> {
   try {
-    const stored = await prisma.qrBiometricReading.findFirst({
-      where: { decodedData, studentInfoStatus: "scraped" },
-      orderBy: { createdAt: "desc" },
-      select: { studentInfo: true },
-    })
-    const studentInfo = normalizeStudentInfo(stored?.studentInfo)
-    if (!studentInfo || !hasUsefulStudentInfo(studentInfo)) return profile
-    return { ...profile, info: studentInfo }
+    const [storedProfile, storedPhoto] = await Promise.all([
+      profile.info ? null : prisma.qrBiometricReading.findFirst({
+        where: { decodedData, studentInfoStatus: "scraped" },
+        orderBy: { createdAt: "desc" },
+        select: { studentInfo: true },
+      }),
+      prisma.qrBiometricReading.findFirst({
+        where: { decodedData, studentPhotoUrl: { not: null } },
+        orderBy: { createdAt: "desc" },
+        select: { studentPhotoUrl: true },
+      }),
+    ])
+    const storedInfo = normalizeStudentInfo(storedProfile?.studentInfo)
+    return {
+      ...profile,
+      info: profile.info ?? (storedInfo && hasUsefulStudentInfo(storedInfo) ? storedInfo : null),
+      studentPhotoUrl: isStoredStudentPhotoUrl(storedPhoto?.studentPhotoUrl) ? storedPhoto.studentPhotoUrl : undefined,
+    }
   } catch (error) {
     console.error("[qr-biometric] Failed to reuse stored student profile", error)
     return profile
@@ -244,7 +260,13 @@ function removeReadingFromBuffer(buffer: QrBiometricReading[], id: string) {
   buffer.push(...retained)
 }
 
-function createReading(deviceId: string, decodedData: string, entryState: QrEntryState, studentProfile: { status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null }, id = crypto.randomUUID()): QrBiometricReading {
+function applyStoredPhotoToMemory(decodedData: string, studentPhotoUrl: string) {
+  for (const reading of [...liveReadingsBuffer, ...pendingWriteQueue]) {
+    if (reading.decodedData === decodedData) reading.studentPhotoUrl = studentPhotoUrl
+  }
+}
+
+function createReading(deviceId: string, decodedData: string, entryState: QrEntryState, studentProfile: { status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null; studentPhotoUrl?: string }, id = crypto.randomUUID()): QrBiometricReading {
   return {
     id,
     deviceId,
@@ -254,6 +276,7 @@ function createReading(deviceId: string, decodedData: string, entryState: QrEntr
     entryState,
     characterCount: decodedData.length,
     studentInfo: studentProfile.info,
+    studentPhotoUrl: studentProfile.studentPhotoUrl ?? null,
     studentInfoStatus: studentProfile.status,
     studentInfoError: studentProfile.error,
     timestamp: new Date().toISOString(),
@@ -268,6 +291,7 @@ function toApiReading(record: {
   entryState?: string | null
   characterCount: number
   studentInfo?: unknown
+  studentPhotoUrl?: string | null
   studentInfoStatus?: string | null
   studentInfoError?: string | null
   createdAt: Date
@@ -282,6 +306,7 @@ function toApiReading(record: {
     entryState: normalizeEntryState(record.entryState),
     characterCount: record.characterCount,
     studentInfo: normalizeStudentInfo(record.studentInfo),
+    studentPhotoUrl: isStoredStudentPhotoUrl(record.studentPhotoUrl) ? record.studentPhotoUrl : null,
     studentInfoStatus: status === "scraped" || status === "failed" ? status : "not_applicable",
     studentInfoError: record.studentInfoError ?? null,
     timestamp: record.createdAt.toISOString(),
@@ -353,15 +378,20 @@ function buildAnalysis(readings: QrBiometricReading[]) {
 }
 
 function withBestStudentProfile(target: QrBiometricReading, source: QrBiometricReading): QrBiometricReading {
-  if (!source.studentInfo) return target
+  if (!source.studentInfo && !source.studentPhotoUrl) return target
   if (!target.studentInfo) {
-    return { ...target, studentInfo: source.studentInfo, studentInfoStatus: source.studentInfoStatus, studentInfoError: source.studentInfoError }
+    return { ...target, studentInfo: source.studentInfo, studentPhotoUrl: target.studentPhotoUrl ?? source.studentPhotoUrl, studentInfoStatus: source.studentInfoStatus, studentInfoError: source.studentInfoError }
   }
-  if (target.studentInfo.photoUrl || !source.studentInfo.photoUrl) return target
+  if (target.studentPhotoUrl || !source.studentPhotoUrl) {
+    if (target.studentInfo.photoUrl || !source.studentInfo?.photoUrl) return target
+  }
 
   return {
     ...target,
-    studentInfo: { ...source.studentInfo, ...target.studentInfo, photoUrl: source.studentInfo.photoUrl },
+    studentPhotoUrl: target.studentPhotoUrl ?? source.studentPhotoUrl,
+    studentInfo: source.studentInfo?.photoUrl
+      ? { ...source.studentInfo, ...target.studentInfo, photoUrl: target.studentInfo.photoUrl ?? source.studentInfo.photoUrl }
+      : target.studentInfo,
   }
 }
 
@@ -462,6 +492,7 @@ async function saveReadingToDatabase(reading: QrBiometricReading, preserveReadin
       entryState: reading.entryState,
       characterCount: reading.characterCount,
       studentInfo: toStoredStudentInfo(reading.studentInfo),
+      studentPhotoUrl: reading.studentPhotoUrl ?? undefined,
       studentInfoStatus: reading.studentInfoStatus,
       studentInfoError: reading.studentInfoError ?? undefined,
       createdAt: new Date(reading.timestamp),
@@ -486,6 +517,7 @@ function scanSuccessResponse(reading: QrBiometricReading, scanId: string | null,
     entryState: reading.entryState,
     fullName: reading.studentInfo?.fullName ?? null,
     enrollmentNo: reading.studentInfo?.enrollmentNo ?? null,
+    studentPhotoUrl: reading.studentPhotoUrl,
     studentProfile: { status: reading.studentInfoStatus, error: reading.studentInfoError },
     persistence: { status: "saved", queuedWrites: pendingWriteQueue.length },
     received: reading,
@@ -524,6 +556,7 @@ async function saveManualReading(sourceReading: QrBiometricReading, entryState: 
     status: sourceReading.studentInfoStatus,
     info: sourceReading.studentInfo,
     error: sourceReading.studentInfoError,
+    studentPhotoUrl: sourceReading.studentPhotoUrl ?? undefined,
   })
   pushWithLimit(liveReadingsBuffer, reading, MAX_BUFFER_SIZE)
 
@@ -711,6 +744,22 @@ export async function POST(request: NextRequest) {
     const record = await saveReadingToDatabase(reading, Boolean(scanId))
     const savedReading = toApiReading(record)
     pushWithLimit(liveReadingsBuffer, savedReading, MAX_BUFFER_SIZE)
+    if (studentProfile.info?.photoUrl && !savedReading.studentPhotoUrl) {
+      after(async () => {
+        try {
+          const storedPhotoUrl = await fetchAndStoreStudentPhoto(decodedData, studentProfile.info?.photoUrl, fetchedStudentProfile.photoCookie, fetchedStudentProfile.profileUrl)
+          if (storedPhotoUrl) {
+            await prisma.qrBiometricReading.updateMany({
+              where: { decodedData },
+              data: { studentPhotoUrl: storedPhotoUrl },
+            })
+            applyStoredPhotoToMemory(decodedData, storedPhotoUrl)
+          }
+        } catch (error) {
+          console.error("[qr-biometric] Failed to persist student photo", error)
+        }
+      })
+    }
     return scanSuccessResponse(savedReading, scanId)
   } catch (error) {
     if (scanId) {

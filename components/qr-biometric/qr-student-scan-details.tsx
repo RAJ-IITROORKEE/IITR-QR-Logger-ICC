@@ -6,6 +6,7 @@ import { AlertTriangle, ExternalLink, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { buildQrStudentPhotoProxySrc } from "@/lib/qr-biometric-student"
+import { buildStoredStudentPhotoProxySrc } from "@/lib/qr-biometric-photo"
 import type { QrBiometricReading } from "@/types/qr-biometric"
 
 export function formatQrFullTimestamp(ts: string): string {
@@ -55,7 +56,7 @@ export function QrStudentAvatar({ reading, size = "sm" }: { reading: QrBiometric
   const isLarge = size === "lg"
   const sizeClass = isLarge ? "size-24" : "size-11"
   const initials = (info?.fullName ?? info?.enrollmentNo ?? "QR").slice(0, 2).toUpperCase()
-  const photoSrc = buildQrStudentPhotoProxySrc(info?.photoUrl, info?.enrollmentNo, getQrDecodedHref(reading))
+  const photoSrc = buildStoredStudentPhotoProxySrc(reading.studentPhotoUrl) ?? buildQrStudentPhotoProxySrc(info?.photoUrl, info?.enrollmentNo, getQrDecodedHref(reading))
 
   if (photoSrc) {
     return (

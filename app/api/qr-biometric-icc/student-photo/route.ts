@@ -1,11 +1,18 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
+import { ACCESS_SESSION_COOKIE, verifyAccessSession } from "@/lib/access-auth"
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
+import { normalizeStudentPhotoContentType } from "@/lib/qr-biometric-photo"
 import { extractStudentInfo, isDoswStudentUrl, normalizeDecodedUrl, normalizeDoswStudentPhotoUrl } from "@/lib/qr-biometric-student"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const hasAccess = verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)
+    || await verifyAccessSession(request.cookies.get(ACCESS_SESSION_COOKIE)?.value)
+  if (!hasAccess) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+
   const { searchParams } = new URL(request.url)
   const requestedPhotoUrl = normalizeDoswStudentPhotoUrl(searchParams.get("src") ?? undefined)
   const decodedProfileUrl = normalizeDecodedUrl(searchParams.get("profile") ?? "")
@@ -45,7 +52,7 @@ export async function GET(request: Request) {
     const response = await fetch(photoUrl, {
       cache: "no-store",
       headers: {
-        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        accept: "image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1",
         ...(cookieHeader ? { cookie: cookieHeader } : {}),
         referer: profileUrl ?? "https://dosw.iitr.ac.in/",
         "user-agent": "Mozilla/5.0 (compatible; QR-Logger-ICC/1.0)",
@@ -56,18 +63,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: `Student photo returned HTTP ${response.status}` }, { status: response.status })
     }
 
-    const contentType = response.headers.get("content-type") ?? "image/jpeg"
-    if (!contentType.toLowerCase().startsWith("image/")) {
-      return NextResponse.json({ success: false, error: "Student photo response was not an image" }, { status: 502 })
+    const contentType = normalizeStudentPhotoContentType(response.headers.get("content-type"))
+    if (!contentType) {
+      return NextResponse.json({ success: false, error: "Student photo response was not an allowed raster image" }, { status: 502 })
     }
 
     const image = await response.arrayBuffer()
     return new NextResponse(image, {
       status: 200,
       headers: {
-        "cache-control": "public, max-age=3600, stale-while-revalidate=86400",
+        "cache-control": "private, no-store",
         "content-length": String(image.byteLength),
         "content-type": contentType,
+        "x-content-type-options": "nosniff",
       },
     })
   } catch (error) {
