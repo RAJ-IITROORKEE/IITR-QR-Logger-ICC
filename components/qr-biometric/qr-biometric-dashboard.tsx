@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { CheckCircle2, Clock3, Database, Fingerprint, Loader2, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, WifiOff } from "lucide-react"
 import { toast } from "sonner"
 
@@ -11,6 +11,9 @@ import { QrEntryStateBadge, QrStudentAvatar, QrStudentSummary, qrStudentDisplayN
 import type { QrBiometricReading, QrEntryState } from "@/types/qr-biometric"
 
 interface QrApiResponse {
+  success?: boolean
+  error?: string
+  warning?: string | null
   latest: QrBiometricReading | null
   readings: QrBiometricReading[]
   stats: {
@@ -115,6 +118,8 @@ function formatClock(value: string | null | undefined) {
 export function QrBiometricDashboard() {
   const [data, setData] = useState<QrApiResponse>(emptyData)
   const [loading, setLoading] = useState(true)
+  const [hasLoadedData, setHasLoadedData] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
   const [manualOpen, setManualOpen] = useState(false)
@@ -124,24 +129,39 @@ export function QrBiometricDashboard() {
   const [manualPreview, setManualPreview] = useState<QrBiometricReading | null>(null)
   const [manualCurrentStatus, setManualCurrentStatus] = useState<QrEntryState | null>(null)
   const [manualEntryState, setManualEntryState] = useState<QrEntryState>("IN")
+  const fetchControllerRef = useRef<AbortController | null>(null)
 
   const fetchData = useCallback(async () => {
+    fetchControllerRef.current?.abort()
+    const controller = new AbortController()
+    fetchControllerRef.current = controller
+
     try {
       const params = new URLSearchParams({ limit: "12", page: String(page) })
       if (search.trim()) params.set("search", search.trim())
-      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store" })
-      if (!response.ok) return
-      const result = (await response.json()) as QrApiResponse
+      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+      const result = (await response.json().catch(() => null)) as QrApiResponse | null
+      if (!response.ok || !result) throw new Error(result?.error ?? `Dashboard request failed (${response.status})`)
+      if (controller.signal.aborted) return
       setData(result)
+      setHasLoadedData(true)
+      setFetchError(result.warning ?? null)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setFetchError(error instanceof Error ? error.message : "Dashboard data is temporarily unavailable")
     } finally {
-      setLoading(false)
+      if (fetchControllerRef.current === controller) setLoading(false)
     }
   }, [page, search])
 
   useEffect(() => {
-    void fetchData()
+    const initial = window.setTimeout(() => void fetchData(), 0)
     const interval = window.setInterval(() => void fetchData(), 10000)
-    return () => window.clearInterval(interval)
+    return () => {
+      window.clearTimeout(initial)
+      window.clearInterval(interval)
+      fetchControllerRef.current?.abort()
+    }
   }, [fetchData])
 
   const latest = data.latest
@@ -167,6 +187,8 @@ export function QrBiometricDashboard() {
 
       const result = (await response.json()) as QrApiResponse
       setData(result)
+      setHasLoadedData(true)
+      setFetchError(result.warning ?? null)
 
       const matchedReading = result.manualLookup?.reading ?? null
       if (!matchedReading) {
@@ -254,6 +276,12 @@ export function QrBiometricDashboard() {
           </Button>
         </div>
       </section>
+
+      {fetchError ? (
+        <p role="alert" className="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          Dashboard data unavailable: {fetchError}{hasLoadedData ? " Showing the last successful update." : " Statistics are not available yet."}
+        </p>
+      ) : null}
 
       <Dialog open={manualOpen} onOpenChange={setManualOpen}>
         <DialogContent className="grid max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-orange-500/35 bg-card p-0 shadow-[0_24px_80px_-32px_rgba(249,115,22,0.8)] sm:max-h-[calc(100dvh-2rem)] sm:max-w-xl">
@@ -351,12 +379,12 @@ export function QrBiometricDashboard() {
         </div>
         <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Today&apos;s Logs</p>
-          <p className="text-2xl font-bold tabular-nums">{data.stats.dailyScans ?? 0}</p>
-          <p className="mt-1 text-xs text-muted-foreground">IN {data.stats.dailyIn} · OUT {data.stats.dailyOut}</p>
+          <p className="text-2xl font-bold tabular-nums">{hasLoadedData ? (data.stats.dailyScans ?? 0) : "--"}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{hasLoadedData ? `IN ${data.stats.dailyIn} · OUT ${data.stats.dailyOut}` : "Statistics unavailable"}</p>
         </div>
         <div className="mobile-paint-stable min-w-0 rounded-2xl border border-border bg-card/80 p-4">
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Total Logs</p>
-          <p className="text-2xl font-bold tabular-nums text-orange-500">{data.stats.totalScans}</p>
+          <p className="text-2xl font-bold tabular-nums text-orange-500">{hasLoadedData ? data.stats.totalScans : "--"}</p>
           <div className="mt-3" aria-label={`QR device scans: ${data.stats.qrDeviceScans}; manual scans: ${data.stats.manualScans}`}>
             <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" role="img" aria-label="QR device and manual scan distribution">
               <div
@@ -425,11 +453,11 @@ export function QrBiometricDashboard() {
           <div className="grid gap-3">
             <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Total Scans</p>
-              <p className="mt-2 inline-flex items-center gap-2 font-mono text-xl text-orange-100"><Database className="h-4 w-4" />{data.stats.totalScans}</p>
+              <p className="mt-2 inline-flex items-center gap-2 font-mono text-xl text-orange-100"><Database className="h-4 w-4" />{hasLoadedData ? data.stats.totalScans : "--"}</p>
             </div>
             <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Unique QR Codes</p>
-              <p className="mt-2 inline-flex items-center gap-2 font-mono text-xl text-orange-100"><QrCode className="h-4 w-4" />{data.stats.uniqueCodes}</p>
+              <p className="mt-2 inline-flex items-center gap-2 font-mono text-xl text-orange-100"><QrCode className="h-4 w-4" />{hasLoadedData ? data.stats.uniqueCodes : "--"}</p>
             </div>
             <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Verification Stage</p>

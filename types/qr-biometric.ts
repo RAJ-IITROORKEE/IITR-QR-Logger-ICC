@@ -137,5 +137,6 @@ export interface QrBiometricApiResponse {
     liveBufferCount: number
   }
   serverTime: string
+  reportingTimeZone?: string
   warning: string | null
 }

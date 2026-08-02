@@ -6,6 +6,8 @@ import { resolveDeviceMacRegistration } from "@/lib/device-mac-registration"
 import { verifyDeviceApiKey } from "@/lib/device-api-key"
 import { matchesScanDelivery, resolveScanId } from "@/lib/qr-biometric-delivery"
 import { matchesDeletionScope } from "@/lib/qr-biometric-deletion"
+import { enrichWithKnownStudentProfiles } from "@/lib/qr-biometric-profile"
+import { isSameReportingDay, isSameReportingMonth, parseReportingDateBoundary, parseReportingMonthRange, QR_REPORTING_TIME_ZONE, reportingDateKey } from "@/lib/qr-biometric-reporting"
 import { addDoswStudentPhotoFallback, extractStudentInfo, isDoswStudentUrl, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
 import type { QrBiometricReading, QrBiometricStudentSummary, QrEntryState, QrStudentInfo, QrStudentInfoStatus } from "@/types/qr-biometric"
@@ -21,7 +23,7 @@ const MAX_BUFFER_SIZE = 500
 const MAX_PENDING_QUEUE = 500
 const DEVICE_HISTORY_LIMIT = 5000
 const ONLINE_SECONDS = 35
-const STUDENT_PROFILE_TIMEOUT_MS = 3000
+const STUDENT_PROFILE_TIMEOUT_MS = 8000
 const EXPECTED_QR_PATTERN = "https://dosw.iitr.ac.in/StudentProxy.aspx?id=..."
 const RECEIVER_ENDPOINT = "/api/qr-biometric-icc"
 const MANUAL_DEVICE_ID = "MANUAL"
@@ -40,14 +42,6 @@ type DeviceAuthResult = { ok: true; error: null; device: AuthenticatedDevice } |
 
 const liveReadingsBuffer: QrBiometricReading[] = []
 const pendingWriteQueue: QrBiometricReading[] = []
-
-type DeletionStore = {
-  findUnique(args: { where: { scanId: string } }): Promise<{ scanId: string } | null>
-  upsert(args: { where: { scanId: string }; create: { scanId: string; deviceId: string; decodedData: string }; update: Record<string, never> }): Promise<unknown>
-  create(args: { data: { scanId: string; deviceId: string; decodedData: string } }): Promise<unknown>
-}
-
-const deletionStore = (prisma as unknown as { qrBiometricDeletion: DeletionStore }).qrBiometricDeletion
 
 async function hasDashboardAccess(request: NextRequest) {
   if (verifyAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)) return true
@@ -99,21 +93,6 @@ function parseOrder(value: string | null): SortOrder {
   return value === "asc" ? "asc" : "desc"
 }
 
-function parseDate(value: string | null): Date | null {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
-function parseMonthRange(value: string | null): { start: Date; end: Date } | null {
-  if (!value || !/^\d{4}-\d{2}$/.test(value)) return null
-  const [year, month] = value.split("-").map(Number)
-  if (!year || !month || month < 1 || month > 12) return null
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0))
-  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0))
-  return { start, end }
-}
-
 function normalizeEntryState(value: unknown): QrEntryState {
   return value === "OUT" ? "OUT" : "IN"
 }
@@ -155,12 +134,17 @@ async function fetchStudentInfo(decodedData: string): Promise<{ status: QrStuden
     const response = await fetch(profileUrl, {
       cache: "no-store",
       headers: {
-        "user-agent": "QR-BIOMETRIC-CC/1.0 ICC-IITR",
         accept: "text/html,application/xhtml+xml",
+        "accept-language": "en-IN,en;q=0.9",
+        "user-agent": "Mozilla/5.0 (compatible; QR-Logger-ICC/1.0)",
       },
       signal: controller.signal,
     })
     if (!response.ok) return { status: "failed", info: null, error: `Student profile returned HTTP ${response.status}` }
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+    if (contentType && !contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+      return { status: "failed", info: null, error: "Student profile response was not HTML" }
+    }
 
     const info = extractStudentInfo(await response.text(), profileUrl)
     if (!hasUsefulStudentInfo(info)) return { status: "failed", info: null, error: "Student profile did not contain readable fields" }
@@ -169,6 +153,24 @@ async function fetchStudentInfo(decodedData: string): Promise<{ status: QrStuden
     return { status: "failed", info: null, error: error instanceof Error ? error.message : "Failed to scrape student profile" }
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+async function reuseStoredStudentInfo(decodedData: string, profile: { status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null }) {
+  if (profile.info) return profile
+
+  try {
+    const stored = await prisma.qrBiometricReading.findFirst({
+      where: { decodedData, studentInfoStatus: "scraped" },
+      orderBy: { createdAt: "desc" },
+      select: { studentInfo: true },
+    })
+    const studentInfo = normalizeStudentInfo(stored?.studentInfo)
+    if (!studentInfo || !hasUsefulStudentInfo(studentInfo)) return profile
+    return { ...profile, info: studentInfo }
+  } catch (error) {
+    console.error("[qr-biometric] Failed to reuse stored student profile", error)
+    return profile
   }
 }
 
@@ -286,14 +288,6 @@ function toApiReading(record: {
   }
 }
 
-function sameUtcDay(date: Date, now = new Date()) {
-  return date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() === now.getUTCMonth() && date.getUTCDate() === now.getUTCDate()
-}
-
-function sameUtcMonth(date: Date, now = new Date()) {
-  return date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() === now.getUTCMonth()
-}
-
 function buildStats(readings: QrBiometricReading[]) {
   const totalScans = readings.length
   const uniqueCodes = new Set(readings.map((r) => r.decodedData)).size
@@ -312,12 +306,12 @@ function buildStats(readings: QrBiometricReading[]) {
     currentIn: Array.from(latestStateByCode.values()).filter((state) => state === "IN").length,
     currentOut: Array.from(latestStateByCode.values()).filter((state) => state === "OUT").length,
     scrapedStudents: readings.filter((r) => r.studentInfoStatus === "scraped").length,
-    dailyScans: readings.filter((r) => sameUtcDay(new Date(r.timestamp))).length,
-    dailyIn: readings.filter((r) => sameUtcDay(new Date(r.timestamp)) && r.entryState === "IN").length,
-    dailyOut: readings.filter((r) => sameUtcDay(new Date(r.timestamp)) && r.entryState === "OUT").length,
+    dailyScans: readings.filter((r) => isSameReportingDay(new Date(r.timestamp))).length,
+    dailyIn: readings.filter((r) => isSameReportingDay(new Date(r.timestamp)) && r.entryState === "IN").length,
+    dailyOut: readings.filter((r) => isSameReportingDay(new Date(r.timestamp)) && r.entryState === "OUT").length,
     qrDeviceScans: readings.filter((r) => r.deviceId !== MANUAL_DEVICE_ID).length,
     manualScans: readings.filter((r) => r.deviceId === MANUAL_DEVICE_ID).length,
-    monthlyScans: readings.filter((r) => sameUtcMonth(new Date(r.timestamp))).length,
+    monthlyScans: readings.filter((r) => isSameReportingMonth(new Date(r.timestamp))).length,
     lastScanAt: readings[0]?.timestamp ?? null,
     avgCharacters: totalScans > 0 ? Number((totalChars / totalScans).toFixed(1)) : null,
   }
@@ -337,7 +331,7 @@ function buildAnalysis(readings: QrBiometricReading[]) {
       deviceMap.set(reading.deviceId, { deviceId: reading.deviceId, totalScans: 1, lastScanAt: reading.timestamp })
     }
 
-    const date = reading.timestamp.slice(0, 10)
+    const date = reportingDateKey(new Date(reading.timestamp))
     const existingDay = timeline.get(date) ?? { date, total: 0, inCount: 0, outCount: 0 }
     existingDay.total += 1
     if (reading.entryState === "IN") existingDay.inCount += 1
@@ -664,7 +658,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (scanId) {
-    const deleted = await deletionStore.findUnique({ where: { scanId } }).catch((error: unknown) => {
+    const deleted = await prisma.qrBiometricDeletion.findUnique({ where: { scanId } }).catch((error: unknown) => {
       console.error("[qr-biometric] Deletion tombstone lookup unavailable", error)
       return undefined
     })
@@ -710,7 +704,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const [entryState, studentProfile] = await Promise.all([resolveEntryState(decodedData), fetchStudentInfo(decodedData)])
+  const [entryState, fetchedStudentProfile] = await Promise.all([resolveEntryState(decodedData), fetchStudentInfo(decodedData)])
+  const studentProfile = await reuseStoredStudentInfo(decodedData, fetchedStudentProfile)
   const reading = createReading(deviceId, decodedData, entryState, studentProfile, scanId ?? undefined)
   try {
     const record = await saveReadingToDatabase(reading, Boolean(scanId))
@@ -749,9 +744,9 @@ export async function GET(request: NextRequest) {
   const sort = adminReadAccess ? requestedSort : "createdAt"
   const order = adminReadAccess ? requestedOrder : "desc"
   const month = searchParams.get("month")
-  const monthRange = parseMonthRange(month)
-  const from = monthRange?.start ?? parseDate(searchParams.get("from"))
-  const to = monthRange?.end ?? parseDate(searchParams.get("to"))
+  const monthRange = parseReportingMonthRange(month)
+  const from = monthRange?.start ?? parseReportingDateBoundary(searchParams.get("from"), "start")
+  const to = monthRange?.end ?? parseReportingDateBoundary(searchParams.get("to"), "end")
 
   const queueResult = await flushPendingQueue().catch(() => ({ flushed: 0, remaining: pendingWriteQueue.length }))
   let dbConnected = true
@@ -776,7 +771,7 @@ export async function GET(request: NextRequest) {
   }
 
   const liveReadings = filterLiveReadings(liveReadingsBuffer, deviceId, from, to)
-  const merged = mergeReadings(dbReadings, liveReadings)
+  const merged = enrichWithKnownStudentProfiles(mergeReadings(dbReadings, liveReadings))
   const accessibleReadings = adminReadAccess ? merged : merged.slice(0, PUBLIC_LOG_LIMIT)
   const searched = applySearch(accessibleReadings, search)
   const sorted = sortReadings(searched, sort, order)
@@ -810,6 +805,7 @@ export async function GET(request: NextRequest) {
     health: { status: lastSeenSeconds !== null && lastSeenSeconds <= ONLINE_SECONDS ? "online" : "offline", lastSeenSeconds },
     system: { dbConnected, queuedWrites: pendingWriteQueue.length, flushedWrites: queueResult.flushed, liveBufferCount: liveReadingsBuffer.length },
     serverTime: new Date().toISOString(),
+    reportingTimeZone: QR_REPORTING_TIME_ZONE,
     warning: dbConnected ? null : "Database currently unavailable. Serving live and buffered QR scans while queue retries continue.",
   })
 }
@@ -824,9 +820,9 @@ export async function DELETE(request: NextRequest) {
 
   try {
     if (body.clearAll) {
-      const monthRange = parseMonthRange(body.month ?? null)
-      const from = monthRange?.start ?? parseDate(body.from ?? null)
-      const to = monthRange?.end ?? parseDate(body.to ?? null)
+      const monthRange = parseReportingMonthRange(body.month ?? null)
+      const from = monthRange?.start ?? parseReportingDateBoundary(body.from ?? null, "start")
+      const to = monthRange?.end ?? parseReportingDateBoundary(body.to ?? null, "end")
       const where: { deviceId?: string; createdAt?: { gte?: Date; lt?: Date } } = {}
       if (body.deviceId) where.deviceId = body.deviceId
       if (from || to) where.createdAt = { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) }
@@ -836,7 +832,7 @@ export async function DELETE(request: NextRequest) {
         .map((reading) => ({ id: reading.id, deviceId: reading.deviceId, decodedData: reading.decodedData, createdAt: new Date(reading.timestamp) }))
       const allRecords = new Map([...records, ...memoryRecords].map((record) => [record.id, record]))
       for (const record of allRecords.values()) {
-        await deletionStore.upsert({
+        await prisma.qrBiometricDeletion.upsert({
           where: { scanId: record.id },
           create: { scanId: record.id, deviceId: record.deviceId, decodedData: record.decodedData },
           update: {},
@@ -856,7 +852,7 @@ export async function DELETE(request: NextRequest) {
     const memoryRecord = [...liveReadingsBuffer, ...pendingWriteQueue].find((reading) => reading.id === id)
     if (!record && !memoryRecord) return NextResponse.json({ success: false, error: "Reading not found" }, { status: 404 })
     const source = record ?? { id, deviceId: memoryRecord!.deviceId, decodedData: memoryRecord!.decodedData }
-    await deletionStore.create({ data: { scanId: source.id, deviceId: source.deviceId, decodedData: source.decodedData } }).catch(async (error: unknown) => {
+    await prisma.qrBiometricDeletion.create({ data: { scanId: source.id, deviceId: source.deviceId, decodedData: source.decodedData } }).catch(async (error: unknown) => {
       if (!String(error).includes("Unique constraint")) throw error
     })
     const result = await prisma.qrBiometricReading.deleteMany({ where: { id } })

@@ -1098,7 +1098,7 @@ UploadResult uploadPendingScan(const PendingScan& pending) {
 
   HTTPClient http;
   http.setConnectTimeout(6000);
-  http.setTimeout(12000);
+  http.setTimeout(15000);
   if (!http.begin(client, API_URL)) {
     printLine("Scan upload HTTP initialization failed");
     return result;

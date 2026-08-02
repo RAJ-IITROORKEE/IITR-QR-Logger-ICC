@@ -17,9 +17,9 @@ Required libraries:
 - M5UnitQRCode 1.0.0
 - ArduinoJson 7.4.3
 
-Copy `secrets.h.example` to the ignored `secrets.h` and provision the Wi-Fi and device API credentials there. Rotate credentials before deployment if they have previously been stored in source files.
+Copy `secrets.h.example` to the ignored `secrets.h` and provision `QR_DEVICE_ID`, Wi-Fi, and the API key there. `QR_DEVICE_ID` and `API_KEY` must come from the same Admin device row; for example, a board configured as `QR-102` must log `Device: QR-102` at boot and use the key generated for `QR-102`. Rotate credentials before deployment if they have previously been stored in source files.
 
-On a new or fully erased board, hold the AtomS3R button during the first boot to confirm LittleFS formatting. Firmware never automatically formats an unmountable filesystem, preventing a missing NVS marker from erasing recoverable queued scans.
+If LittleFS cannot mount, the display opens a 10-second recovery window. Hold the AtomS3R front button continuously for two seconds during that window to confirm a one-time format. This works even when an old NVS initialization marker survives a partition-layout change. Firmware never formats unmountable storage without physical confirmation, preventing a mount error from silently erasing recoverable queued scans.
 
 Arduino CLI command:
 
@@ -39,6 +39,6 @@ Malformed records and permanent payload rejections are moved to `/failed` instea
 
 Queue writes use a flushed temporary file followed by an atomic rename. On boot, a complete temporary queue record left by a power loss is validated and recovered instead of being discarded.
 
-Known student profiles are cached locally. A first scan of an unseen QR displays its decoded URL until the API response supplies the name and enrollment because those fields are not encoded in the opaque DOSW URL. The cache is capped at 64 profiles and reserves 128 KB for the scan queue.
+Known student profiles are cached locally. A first scan of an unseen QR displays `PROFILE PENDING` until the API response supplies the name and enrollment because those fields are not encoded in the opaque DOSW URL. The cache is capped at 64 profiles and reserves 128 KB for the scan queue.
 
 HTTPS validates the server against ISRG Root X1 and requires an NTP-synchronized clock. Before flashing production devices, verify that `iitrlogger.com` still serves a certificate chain rooted at ISRG Root X1. Update the embedded trust anchor if the deployment provider changes its chain.

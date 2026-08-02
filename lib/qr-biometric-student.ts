@@ -38,6 +38,7 @@ function htmlToLines(html: string): string[] {
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<input\b[^>]*>/gi, (tag) => ` ${readAttribute(tag, "value") ?? ""} `)
     .replace(/<br\s*\/?\s*>/gi, "\n")
     .replace(/<\/(p|tr|div|li|h[1-6])>/gi, "\n")
     .replace(/<\/(td|th)>/gi, "\t")

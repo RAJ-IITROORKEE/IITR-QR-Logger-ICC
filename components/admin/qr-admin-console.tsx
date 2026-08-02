@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Activity, ArrowUpDown, BarChart3, CalendarDays, Database, Download, Eye, LineChart, RefreshCw, Search, Trash2, Users } from "lucide-react"
 
@@ -384,6 +384,8 @@ function StudentRegistryTable({ students }: { students: QrBiometricStudentSummar
 export function QrAdminConsole({ mode }: { mode: Mode }) {
   const [data, setData] = useState<QrBiometricApiResponse>(emptyData)
   const [loading, setLoading] = useState(true)
+  const [hasLoadedData, setHasLoadedData] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState<SortKey>("createdAt")
   const [order, setOrder] = useState<SortOrder>("desc")
@@ -393,27 +395,43 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
   const [page, setPage] = useState(1)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const fetchControllerRef = useRef<AbortController | null>(null)
   const limit = mode === "dashboard" ? 12 : 25
 
   const fetchData = useCallback(async () => {
+    fetchControllerRef.current?.abort()
+    const controller = new AbortController()
+    fetchControllerRef.current = controller
+
     try {
       const params = new URLSearchParams({ limit: String(limit), page: String(page), sort, order })
       if (search.trim()) params.set("search", search.trim())
       if (month) params.set("month", month)
       if (from) params.set("from", from)
       if (to) params.set("to", to)
-      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store" })
-      if (!response.ok) return
-      setData((await response.json()) as QrBiometricApiResponse)
+      const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store", signal: controller.signal })
+      const result = (await response.json().catch(() => null)) as (QrBiometricApiResponse & { error?: string }) | null
+      if (!response.ok || !result) throw new Error(result?.error ?? `Dashboard request failed (${response.status})`)
+      if (controller.signal.aborted) return
+      setData(result)
+      setHasLoadedData(true)
+      setFetchError(result.warning ?? null)
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setFetchError(error instanceof Error ? error.message : "Dashboard data is temporarily unavailable")
     } finally {
-      setLoading(false)
+      if (fetchControllerRef.current === controller) setLoading(false)
     }
   }, [from, limit, month, order, page, search, sort, to])
 
   useEffect(() => {
-    void fetchData()
+    const initial = window.setTimeout(() => void fetchData(), 0)
     const interval = window.setInterval(() => void fetchData(), 12000)
-    return () => window.clearInterval(interval)
+    return () => {
+      window.clearTimeout(initial)
+      window.clearInterval(interval)
+      fetchControllerRef.current?.abort()
+    }
   }, [fetchData])
 
   async function deleteReading(id: string) {
@@ -490,12 +508,13 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
 
       {actionMessage ? <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{actionMessage}</p> : null}
       {actionError ? <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{actionError}</p> : null}
+      {fetchError ? <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">Dashboard data unavailable: {fetchError}{hasLoadedData ? " Showing the last successful update." : " Statistics are not available yet."}</p> : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Daily Logs" value={data.stats.dailyScans ?? 0} caption="Scans captured today" />
-        <StatCard label="Monthly Logs" value={data.stats.monthlyScans ?? 0} caption="Current month total" />
-        <StatCard label="Students Inside" value={data.stats.currentIn} caption="Latest IN state count" />
-        <StatCard label="Devices" value={data.stats.uniqueDevices} caption="Unique reporting device IDs" />
+        <StatCard label="Daily Logs" value={hasLoadedData ? (data.stats.dailyScans ?? 0) : "--"} caption="Scans captured today (Asia/Kolkata)" />
+        <StatCard label="Monthly Logs" value={hasLoadedData ? (data.stats.monthlyScans ?? 0) : "--"} caption="Current month total (Asia/Kolkata)" />
+        <StatCard label="Students Inside" value={hasLoadedData ? data.stats.currentIn : "--"} caption="Latest IN state count" />
+        <StatCard label="Devices" value={hasLoadedData ? data.stats.uniqueDevices : "--"} caption="Unique reporting device IDs" />
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
