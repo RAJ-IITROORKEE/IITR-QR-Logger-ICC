@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test",
-    "photos:backfill": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --experimental-strip-types scripts/backfill-student-photos.mts",
+    "photos:backfill": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/backfill-student-photos.mts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"
