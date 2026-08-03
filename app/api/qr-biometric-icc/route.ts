@@ -3,6 +3,7 @@ import { after } from "next/server"
 
 import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
+import { deleteCanonicalAttendanceReadings, reconcilePendingCanonicalReadings, recordCanonicalQrAttendance, updateCanonicalStudentPhoto } from "@/lib/attendance-ledger"
 import { resolveDeviceMacRegistration } from "@/lib/device-mac-registration"
 import { verifyDeviceApiKey } from "@/lib/device-api-key"
 import { matchesScanDelivery, resolveScanId } from "@/lib/qr-biometric-delivery"
@@ -40,6 +41,9 @@ type AuthenticatedDevice = {
   apiKeyHash: string | null
   macAddress: string | null
   macAddressLockedAt: Date | null
+  deviceKind: string
+  enabled: boolean
+  disabledAt: Date | null
 }
 type DeviceAuthResult = { ok: true; error: null; device: AuthenticatedDevice } | { ok: false; error: string }
 type StudentProfileFetch = { status: QrStudentInfoStatus; info: QrStudentInfo | null; error: string | null; studentPhotoUrl?: string; photoCookie?: string; profileUrl?: string }
@@ -217,9 +221,10 @@ async function authenticateDevice(deviceId: string, apiKey: string | null): Prom
 
   const device = await prisma.device.findFirst({
     where: { deviceNumber: deviceId, projectType: "qr-biometric" },
-    select: { id: true, deviceNumber: true, apiKeyHash: true, macAddress: true, macAddressLockedAt: true },
+    select: { id: true, deviceNumber: true, apiKeyHash: true, macAddress: true, macAddressLockedAt: true, deviceKind: true, enabled: true, disabledAt: true },
   })
   if (!device || !verifyDeviceApiKey(apiKey, device.apiKeyHash)) return { ok: false, error: "Invalid device ID or API key" }
+  if (!device.enabled || device.disabledAt || device.deviceKind !== "QR_SCANNER") return { ok: false, error: "Invalid device ID or API key" }
 
   await prisma.device.update({ where: { id: device.id }, data: { apiKeyLastUsedAt: new Date() } })
   return { ok: true, error: null, device }
@@ -503,6 +508,36 @@ async function saveReadingToDatabase(reading: QrBiometricReading, preserveReadin
   return record
 }
 
+async function canonicalizeStoredReading(reading: QrBiometricReading, options: { sourceType?: "QR" | "LEGACY"; intent?: "QR_TOGGLE" | "MANUAL_SET_IN" | "MANUAL_SET_OUT"; eventId?: string } = {}) {
+  let candidate = reading
+  if (!candidate.studentInfo?.enrollmentNo) {
+    const fetched = await fetchStudentInfo(candidate.decodedData)
+    const profile = await reuseStoredStudentInfo(candidate.decodedData, fetched)
+    if (profile.info?.enrollmentNo) {
+      await prisma.qrBiometricReading.updateMany({
+        where: { decodedData: candidate.decodedData, OR: [{ attendanceEventId: null }, { attendanceEventId: { isSet: false } }] },
+        data: {
+          studentInfo: toStoredStudentInfo(profile.info),
+          studentInfoStatus: profile.status,
+          studentInfoError: profile.error ?? undefined,
+          studentPhotoUrl: profile.studentPhotoUrl,
+        },
+      })
+      candidate = { ...candidate, studentInfo: profile.info, studentInfoStatus: profile.status, studentInfoError: profile.error, studentPhotoUrl: profile.studentPhotoUrl ?? candidate.studentPhotoUrl }
+    }
+  }
+  if (!candidate.studentInfo?.enrollmentNo) return { reading: candidate, status: "PENDING_PROFILE" as const }
+  const result = await recordCanonicalQrAttendance({
+    readingId: candidate.id,
+    sourceDeviceId: candidate.deviceId,
+    decodedData: candidate.decodedData,
+    occurredAt: new Date(candidate.timestamp),
+    studentInfo: candidate.studentInfo,
+    studentPhotoUrl: candidate.studentPhotoUrl,
+  }, options)
+  return { reading: candidate, status: result.status }
+}
+
 function scanSuccessResponse(reading: QrBiometricReading, scanId: string | null, replayed = false) {
   return NextResponse.json({
     success: true,
@@ -542,7 +577,13 @@ async function flushPendingQueue() {
   let flushed = 0
   for (const reading of toFlush) {
     try {
-      await saveReadingToDatabase(reading)
+      const record = await saveReadingToDatabase(reading, true)
+      const savedReading = toApiReading(record)
+      await canonicalizeStoredReading(savedReading, {
+        sourceType: "LEGACY",
+        eventId: `legacy:${savedReading.id}`,
+        intent: savedReading.entryState === "IN" ? "MANUAL_SET_IN" : "MANUAL_SET_OUT",
+      })
       flushed++
     } catch {
       pushWithLimit(pendingWriteQueue, reading, MAX_PENDING_QUEUE)
@@ -557,21 +598,18 @@ async function saveManualReading(sourceReading: QrBiometricReading, entryState: 
     info: sourceReading.studentInfo,
     error: sourceReading.studentInfoError,
     studentPhotoUrl: sourceReading.studentPhotoUrl ?? undefined,
-  })
-  pushWithLimit(liveReadingsBuffer, reading, MAX_BUFFER_SIZE)
+  }, crypto.randomUUID().replaceAll("-", "").slice(0, 24))
 
   await flushPendingQueue().catch(() => null)
-
-  let dbStatus: DbSaveStatus = "saved"
-  try {
-    await saveReadingToDatabase(reading)
-  } catch (error) {
-    dbStatus = "queued"
-    pushWithLimit(pendingWriteQueue, reading, MAX_PENDING_QUEUE)
-    console.error("[qr-biometric] Manual database save unavailable, queued reading", error)
-  }
-
-  return { reading, dbStatus }
+  const record = await saveReadingToDatabase(reading, true)
+  const savedReading = toApiReading(record)
+  await canonicalizeStoredReading(savedReading, {
+    sourceType: "LEGACY",
+    eventId: `legacy:${savedReading.id}`,
+    intent: entryState === "IN" ? "MANUAL_SET_IN" : "MANUAL_SET_OUT",
+  })
+  pushWithLimit(liveReadingsBuffer, savedReading, MAX_BUFFER_SIZE)
+  return { reading: savedReading, dbStatus: "saved" as DbSaveStatus }
 }
 
 function mergeReadings(dbReadings: QrBiometricReading[], liveReadings: QrBiometricReading[]) {
@@ -733,7 +771,14 @@ export async function POST(request: NextRequest) {
       if (!matchesScanDelivery(existingRecord, deviceId, decodedData)) {
         return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "scanId is already assigned to a different scan" }, { status: 409 })
       }
-      return scanSuccessResponse(toApiReading(existingRecord), scanId, true)
+      const canonical = await canonicalizeStoredReading(toApiReading(existingRecord)).catch((error) => {
+        console.error("[qr-biometric] Canonical replay repair failed", error)
+        return null
+      })
+      if (!canonical || canonical.status === "PENDING_PROFILE") {
+        return NextResponse.json({ success: false, module: "qr-biometric-icc", scanId, error: "Scan is stored but attendance processing is pending; retry with the same scanId" }, { status: 503 })
+      }
+      return scanSuccessResponse(canonical.reading, scanId, true)
     }
   }
 
@@ -744,6 +789,16 @@ export async function POST(request: NextRequest) {
     const record = await saveReadingToDatabase(reading, Boolean(scanId))
     const savedReading = toApiReading(record)
     pushWithLimit(liveReadingsBuffer, savedReading, MAX_BUFFER_SIZE)
+    const canonical = await canonicalizeStoredReading(savedReading).catch((error) => {
+      console.error("[qr-biometric] Canonical attendance dual-write failed", error)
+      return null
+    })
+    if ((!canonical || canonical.status === "PENDING_PROFILE") && scanId) {
+      return NextResponse.json({ success: false, module: "qr-biometric-icc", scanId, error: "Scan is stored but attendance processing is pending; retry with the same scanId" }, { status: 503 })
+    }
+    after(async () => {
+      await reconcilePendingCanonicalReadings().catch((error) => console.error("[qr-biometric] Pending canonical reconciliation failed", error))
+    })
     if (studentProfile.info?.photoUrl && !savedReading.studentPhotoUrl) {
       after(async () => {
         try {
@@ -754,6 +809,7 @@ export async function POST(request: NextRequest) {
               data: { studentPhotoUrl: storedPhotoUrl },
             })
             applyStoredPhotoToMemory(decodedData, storedPhotoUrl)
+            await updateCanonicalStudentPhoto(decodedData, studentProfile.info?.enrollmentNo, storedPhotoUrl)
           }
         } catch (error) {
           console.error("[qr-biometric] Failed to persist student photo", error)
@@ -766,7 +822,11 @@ export async function POST(request: NextRequest) {
       const existingRecord = await prisma.qrBiometricReading.findUnique({ where: { id: scanId } }).catch(() => null)
       if (existingRecord) {
         if (matchesScanDelivery(existingRecord, deviceId, decodedData)) {
-          return scanSuccessResponse(toApiReading(existingRecord), scanId, true)
+          const canonical = await canonicalizeStoredReading(toApiReading(existingRecord)).catch(() => null)
+          if (!canonical || canonical.status === "PENDING_PROFILE") {
+            return NextResponse.json({ success: false, module: "qr-biometric-icc", scanId, error: "Scan is stored but attendance processing is pending; retry with the same scanId" }, { status: 503 })
+          }
+          return scanSuccessResponse(canonical.reading, scanId, true)
         }
         return NextResponse.json({ success: false, module: "qr-biometric-icc", error: "scanId is already assigned to a different scan" }, { status: 409 })
       }
@@ -880,19 +940,22 @@ export async function DELETE(request: NextRequest) {
         .filter((reading) => matchesDeletionScope(reading, { deviceId: body.deviceId ?? null, from, to }))
         .map((reading) => ({ id: reading.id, deviceId: reading.deviceId, decodedData: reading.decodedData, createdAt: new Date(reading.timestamp) }))
       const allRecords = new Map([...records, ...memoryRecords].map((record) => [record.id, record]))
+      const databaseIds = records.map((record) => record.id)
+      const databaseIdSet = new Set(databaseIds)
       for (const record of allRecords.values()) {
+        if (databaseIdSet.has(record.id)) continue
         await prisma.qrBiometricDeletion.upsert({
           where: { scanId: record.id },
           create: { scanId: record.id, deviceId: record.deviceId, decodedData: record.decodedData },
           update: {},
         })
       }
-      const result = await prisma.qrBiometricReading.deleteMany({ where })
+      const result = await deleteCanonicalAttendanceReadings(databaseIds, "Raw attendance reading deleted by administrator")
       for (const record of allRecords.values()) {
         removeReadingFromBuffer(liveReadingsBuffer, record.id)
         removeReadingFromBuffer(pendingWriteQueue, record.id)
       }
-      return NextResponse.json({ success: true, module: "qr-biometric-icc", deletedCount: allRecords.size, databaseDeletedCount: result.count })
+      return NextResponse.json({ success: true, module: "qr-biometric-icc", deletedCount: allRecords.size, databaseDeletedCount: result.deletedReadings })
     }
 
     const id = parseText(body.id)
@@ -901,13 +964,18 @@ export async function DELETE(request: NextRequest) {
     const memoryRecord = [...liveReadingsBuffer, ...pendingWriteQueue].find((reading) => reading.id === id)
     if (!record && !memoryRecord) return NextResponse.json({ success: false, error: "Reading not found" }, { status: 404 })
     const source = record ?? { id, deviceId: memoryRecord!.deviceId, decodedData: memoryRecord!.decodedData }
-    await prisma.qrBiometricDeletion.create({ data: { scanId: source.id, deviceId: source.deviceId, decodedData: source.decodedData } }).catch(async (error: unknown) => {
-      if (!String(error).includes("Unique constraint")) throw error
-    })
-    const result = await prisma.qrBiometricReading.deleteMany({ where: { id } })
+    let databaseDeletedCount = 0
+    if (record) {
+      const result = await deleteCanonicalAttendanceReadings([id], "Raw attendance reading deleted by administrator")
+      databaseDeletedCount = result.deletedReadings
+    } else {
+      await prisma.qrBiometricDeletion.create({ data: { scanId: source.id, deviceId: source.deviceId, decodedData: source.decodedData } }).catch(async (error: unknown) => {
+        if (!String(error).includes("Unique constraint")) throw error
+      })
+    }
     removeReadingFromBuffer(liveReadingsBuffer, id)
     removeReadingFromBuffer(pendingWriteQueue, id)
-    return NextResponse.json({ success: true, module: "qr-biometric-icc", deleted: id, deletedCount: result.count + (memoryRecord && !record ? 1 : 0) })
+    return NextResponse.json({ success: true, module: "qr-biometric-icc", deleted: id, deletedCount: databaseDeletedCount + (memoryRecord && !record ? 1 : 0) })
   } catch (error) {
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Failed to delete QR biometric readings" }, { status: 500 })
   }

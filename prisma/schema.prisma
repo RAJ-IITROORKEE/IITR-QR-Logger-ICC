@@ -18,10 +18,14 @@ model QrBiometricReading {
   studentPhotoUrl   String?
   studentInfoStatus String   @default("not_applicable")
   studentInfoError  String?
+  enrollmentKey     String?
+  attendanceEventId String?
   createdAt         DateTime @default(now())
 
   @@index([deviceId, createdAt])
   @@index([decodedData, createdAt])
+  @@index([attendanceEventId])
+  @@index([enrollmentKey, createdAt])
   @@index([createdAt])
   @@map("qr_biometric_readings")
 }
@@ -60,6 +64,9 @@ model Device {
   ssid               String    @default("hotspot")
   wifiPassword       String    @default("password")
   firmware           String    @default("v1.0.0")
+  deviceKind         String    @default("QR_SCANNER")
+  enabled            Boolean   @default(true)
+  apiVersion         Int       @default(1)
   location           String    @default("ICC, IIT Roorkee")
   apiKeyHash         String?
   apiKeyPreview      String?
@@ -68,11 +75,100 @@ model Device {
   macAddress         String?
   macAddressLockedAt DateTime?
   lastSeenAt         DateTime?
+  lastHeartbeatAt    DateTime?
+  disabledAt         DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   @@index([projectType, createdAt])
+  @@index([deviceKind, enabled])
   @@index([macAddress])
+}
+
+model StudentIdentity {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  enrollmentKey   String   @unique
+  enrollmentNo    String
+  doswUrl         String   @unique
+  fullName        String?
+  profile         Json?
+  studentPhotoUrl String?
+  photoVersion    Int      @default(1)
+  firstMappedAt   DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([lastSeenAt])
+  @@map("student_identities")
+}
+
+model AttendanceEvent {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  eventId            String    @unique
+  payloadHash        String
+  sourceType         String
+  sourceDeviceId     String
+  deviceSequence     String?
+  bootId             String?
+  intent             String
+  enrollmentKey      String?
+  studentIdentityId  String?   @db.ObjectId
+  doswUrl            String?
+  occurredAt         DateTime
+  receivedAt         DateTime  @default(now())
+  timeQuality        String
+  status             String
+  effectiveState     String?
+  duplicateOfEventId String?
+  projectionVersion  Int?
+  voidedAt           DateTime?
+  voidReason         String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([enrollmentKey, status, occurredAt])
+  @@index([studentIdentityId, occurredAt])
+  @@index([sourceDeviceId, deviceSequence])
+  @@index([status, updatedAt])
+  @@map("attendance_events")
+}
+
+model AttendanceProjection {
+  id                     String   @id @default(auto()) @map("_id") @db.ObjectId
+  enrollmentKey          String   @unique
+  studentIdentityId      String?  @db.ObjectId
+  currentState           String   @default("OUT")
+  latestEffectiveEventId String?
+  latestOccurredAt       DateTime?
+  version                Int      @default(0)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([updatedAt])
+  @@map("attendance_projections")
+}
+
+model AttendanceChange {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  sequence          BigInt   @unique
+  kind              String
+  audienceDeviceId  String?
+  attendanceEventId String?
+  snapshot          Json
+  createdAt         DateTime @default(now())
+
+  @@index([audienceDeviceId, sequence])
+  @@index([createdAt])
+  @@map("attendance_changes")
+}
+
+model AttendanceFeedCounter {
+  id        String   @id @map("_id")
+  value     BigInt   @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("attendance_feed_counters")
 }
 
 model AccessAccount {

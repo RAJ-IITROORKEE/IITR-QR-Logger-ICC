@@ -8,9 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const API_ENDPOINT = "https://iitrlogger.com/api/qr-biometric-icc"
 const DASHBOARD_URL = "https://iitrlogger.com"
+const DEVICE_FEED_ENDPOINT = "https://iitrlogger.com/api/device/v1/feed"
+const DEVICE_MANUAL_ENDPOINT = "https://iitrlogger.com/api/device/v1/manual-events"
+
+type DeviceKind = "QR_SCANNER" | "TAB5_DISPLAY"
 
 type DeviceRecord = {
   id: string
@@ -19,12 +24,17 @@ type DeviceRecord = {
   projectType: string
   location: string
   firmware: string
+  deviceKind: DeviceKind
+  enabled: boolean
+  apiVersion: number
   apiKeyPreview: string | null
   apiKeyCreatedAt: string | null
   apiKeyLastUsedAt: string | null
   macAddress: string | null
   macAddressLockedAt: string | null
   lastSeenAt: string | null
+  lastHeartbeatAt: string | null
+  disabledAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -47,6 +57,7 @@ type GeneratedKey = {
   deviceNumber: string
   deviceName: string
   apiKey: string
+  deviceKind: DeviceKind
 }
 
 const postPayload = {
@@ -105,11 +116,12 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
   const [devices, setDevices] = useState(initialData.registeredDevices)
   const [deviceName, setDeviceName] = useState("")
   const [deviceNumber, setDeviceNumber] = useState("")
+  const [deviceKind, setDeviceKind] = useState<DeviceKind>("QR_SCANNER")
   const [macAddress, setMacAddress] = useState("")
   const [generated, setGenerated] = useState<GeneratedKey | null>(null)
   const [error, setError] = useState(initialData.error)
   const [pending, setPending] = useState(false)
-  const lockedMacCount = devices.filter((device) => device.macAddress).length
+  const enabledCount = devices.filter((device) => device.enabled).length
 
   async function refreshDevices() {
     setPending(true)
@@ -136,13 +148,13 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
       const response = await fetch("/api/admin/devices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ name, deviceNumber: deviceNumber.trim() || undefined, macAddress: macAddress.trim() || undefined }),
+        body: JSON.stringify({ name, deviceKind, deviceNumber: deviceNumber.trim() || undefined, macAddress: macAddress.trim() || undefined }),
       })
       const result = (await response.json()) as { success?: boolean; error?: string; device?: DeviceRecord; apiKey?: string }
       if (!response.ok || !result.success || !result.device || !result.apiKey) throw new Error(result.error ?? "Failed to add device")
 
       setDevices((current) => [result.device as DeviceRecord, ...current])
-      setGenerated({ deviceNumber: result.device.deviceNumber, deviceName: result.device.name, apiKey: result.apiKey })
+      setGenerated({ deviceNumber: result.device.deviceNumber, deviceName: result.device.name, apiKey: result.apiKey, deviceKind: result.device.deviceKind })
       setDeviceName("")
       setDeviceNumber("")
       setMacAddress("")
@@ -154,7 +166,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
   }
 
   async function regenerateApiKey(device: DeviceRecord) {
-    const confirmed = window.confirm(`Regenerate API key for ${device.deviceNumber}? The current key will expire immediately and the Arduino code must be updated.`)
+    const confirmed = window.confirm(`Regenerate API key for ${device.deviceNumber}? The current key will expire immediately and the device must be reprovisioned.`)
     if (!confirmed) return
 
     setPending(true)
@@ -169,9 +181,31 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
       if (!response.ok || !result.success || !result.device || !result.apiKey) throw new Error(result.error ?? "Failed to regenerate API key")
 
       setDevices((current) => current.map((item) => (item.id === result.device?.id ? result.device : item)))
-      setGenerated({ deviceNumber: result.device.deviceNumber, deviceName: result.device.name, apiKey: result.apiKey })
+      setGenerated({ deviceNumber: result.device.deviceNumber, deviceName: result.device.name, apiKey: result.apiKey, deviceKind: result.device.deviceKind })
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to regenerate API key")
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function setDeviceEnabled(device: DeviceRecord, enabled: boolean) {
+    const action = enabled ? "enable" : "disable"
+    if (!enabled && !window.confirm(`Disable ${device.deviceNumber}? Its API access will stop immediately.`)) return
+
+    setPending(true)
+    setError(null)
+    try {
+      const response = await fetch("/api/admin/devices", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: device.id, action }),
+      })
+      const result = (await response.json()) as { success?: boolean; error?: string; device?: DeviceRecord }
+      if (!response.ok || !result.success || !result.device) throw new Error(result.error ?? `Failed to ${action} device`)
+      setDevices((current) => current.map((item) => (item.id === result.device?.id ? result.device : item)))
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : `Failed to ${action} device`)
     } finally {
       setPending(false)
     }
@@ -186,7 +220,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         </div>
         <h1 className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl">Devices & Secure API Keys</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-          Add QR Logger ICC devices, generate strong API keys, and paste the generated key into the Arduino code before uploading it to the M5 device.
+          Provision QR scanners and Tab5 attendance displays with separate identities, one-time API keys, and immediate access controls.
         </p>
       </section>
 
@@ -211,8 +245,8 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>MAC locked devices</CardDescription>
-            <CardTitle className="font-mono text-3xl">{lockedMacCount}</CardTitle>
+            <CardDescription>Enabled devices</CardDescription>
+            <CardTitle className="font-mono text-3xl">{enabledCount}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -237,13 +271,23 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
+              <Label>Device type</Label>
+              <Select value={deviceKind} onValueChange={(value) => setDeviceKind(value as DeviceKind)}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="QR_SCANNER">Physical QR scanner</SelectItem>
+                  <SelectItem value="TAB5_DISPLAY">Tab5 attendance display</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="device-name">Device name</Label>
               <Input id="device-name" value={deviceName} onChange={(event) => setDeviceName(event.target.value)} placeholder="Example: ICC Main Gate Scanner" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="device-number">Device ID</Label>
-              <Input id="device-number" value={deviceNumber} onChange={(event) => setDeviceNumber(event.target.value)} placeholder="QR-102" />
-              <p className="text-xs text-muted-foreground">Use QR-102 or QRB-002. Leave blank to auto-assign.</p>
+              <Input id="device-number" value={deviceNumber} onChange={(event) => setDeviceNumber(event.target.value)} placeholder={deviceKind === "TAB5_DISPLAY" ? "TAB5-001" : "QRB-002"} />
+              <p className="text-xs text-muted-foreground">Use {deviceKind === "TAB5_DISPLAY" ? "TAB5-001" : "QR-102 or QRB-002"}. Leave blank to auto-assign.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="device-mac">WiFi MAC address (optional)</Label>
@@ -255,8 +299,11 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
               Generate API Key
             </Button>
             <div className="rounded-2xl border border-border bg-muted/35 p-4 text-xs leading-5 text-muted-foreground">
-              After generation, paste the raw API key into <span className="font-mono text-foreground">const char* API_KEY = &quot;&quot;;</span> in the Arduino sketch and use the assigned <span className="font-mono text-foreground">DEVICE_ID</span>.
-              The device will register and lock its WiFi MAC automatically after it connects.
+              {deviceKind === "TAB5_DISPLAY" ? (
+                <>Provision the raw key once over USB into encrypted device storage. The Tab5 sends it as a bearer token and never displays it again.</>
+              ) : (
+                <>Paste the raw key into the scanner&apos;s ignored secrets file and use the assigned <span className="font-mono text-foreground">DEVICE_ID</span>. The scanner locks its WiFi MAC on first connection.</>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -278,9 +325,10 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
                 </div>
                 <div className="rounded-2xl border border-border bg-background/55 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Device name</p>
-                  <p className="mt-1 text-sm font-semibold">{generated.deviceName}</p>
+                 <p className="mt-1 text-sm font-semibold">{generated.deviceName}</p>
                 </div>
               </div>
+              <Badge variant="outline">{generated.deviceKind === "TAB5_DISPLAY" ? "Tab5 display" : "QR scanner"}</Badge>
               <div className="rounded-2xl border border-border bg-background/55 p-4">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">API_KEY</p>
                 <p className="mt-2 break-all font-mono text-sm text-orange-200">{generated.apiKey}</p>
@@ -316,18 +364,25 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
                         <p className="font-semibold">{device.name}</p>
                         <p className="font-mono text-xs text-muted-foreground">{device.deviceNumber}</p>
                       </div>
-                      <Button size="sm" variant="outline" disabled={pending} onClick={() => void regenerateApiKey(device)}>
-                        <RefreshCw className="size-3.5" />
-                        Regenerate
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" disabled={pending} onClick={() => void setDeviceEnabled(device, !device.enabled)}>
+                          {device.enabled ? "Disable" : "Enable"}
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={pending} onClick={() => void regenerateApiKey(device)}>
+                          <RefreshCw className="size-3.5" />
+                          Regenerate
+                        </Button>
+                      </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline">Key {device.apiKeyPreview ?? "not generated"}</Badge>
                       <Badge variant="outline">Created {formatDate(device.apiKeyCreatedAt)}</Badge>
                       <Badge variant="outline">Last used {formatDate(device.apiKeyLastUsedAt)}</Badge>
+                      <Badge variant={device.enabled ? "default" : "destructive"}>{device.enabled ? "Enabled" : "Disabled"}</Badge>
+                      <Badge variant="outline">{device.deviceKind === "TAB5_DISPLAY" ? "Tab5 display" : "QR scanner"}</Badge>
                       <Badge variant={device.macAddress ? "default" : "outline"}>{device.macAddress ? "MAC locked" : "MAC pending"}</Badge>
                     </div>
-                    <div className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/25 p-3 text-xs text-muted-foreground sm:grid-cols-3">
+                    <div className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/25 p-3 text-xs text-muted-foreground sm:grid-cols-4">
                       <div>
                         <p className="uppercase tracking-[0.16em]">WiFi MAC</p>
                         <p className="mt-1 font-mono text-foreground">{device.macAddress ?? "Waiting for device"}</p>
@@ -338,7 +393,11 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
                       </div>
                       <div>
                         <p className="uppercase tracking-[0.16em]">Last online</p>
-                        <p className="mt-1 text-foreground">{formatDate(device.lastSeenAt)}</p>
+                        <p className="mt-1 text-foreground">{formatDate(device.lastHeartbeatAt ?? device.lastSeenAt)}</p>
+                      </div>
+                      <div>
+                        <p className="uppercase tracking-[0.16em]">API version</p>
+                        <p className="mt-1 text-foreground">v{device.apiVersion}</p>
                       </div>
                     </div>
                   </div>
@@ -380,6 +439,29 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
           </CardContent>
         </Card>
       </section>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Router className="size-5 text-orange-300" />
+            <CardTitle>Tab5 Device API</CardTitle>
+          </div>
+          <CardDescription>Dedicated bearer-authenticated endpoints for attendance displays. Browser session cookies are not accepted.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="rounded-2xl border border-border bg-muted/35 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cursor feed</p>
+            <p className="mt-1 break-all font-mono text-orange-300">{DEVICE_FEED_ENDPOINT}</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-muted/35 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Manual attendance batch</p>
+            <p className="mt-1 break-all font-mono text-orange-300">{DEVICE_MANUAL_ENDPOINT}</p>
+          </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Send <span className="font-mono text-foreground">Authorization: Bearer &lt;key&gt;</span> and <span className="font-mono text-foreground">X-Device-Id: TAB5-...</span>. Keep the generated key in encrypted NVS, never on the SD card or in source control.
+          </p>
+        </CardContent>
+      </Card>
 
       <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card>
