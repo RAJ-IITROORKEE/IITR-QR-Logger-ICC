@@ -32,6 +32,21 @@ const EXPECTED_QR_PATTERN = "https://dosw.iitr.ac.in/StudentProxy.aspx?id=..."
 const RECEIVER_ENDPOINT = "/api/qr-biometric-icc"
 const MANUAL_DEVICE_ID = "MANUAL"
 
+type CanonicalSnapshot = {
+  event?: {
+    eventId?: unknown
+    occurredAt?: unknown
+    entryState?: unknown
+    sourceType?: unknown
+    status?: unknown
+  } | null
+  student?: {
+    identityId?: unknown
+    name?: unknown
+    enrollment?: unknown
+  } | null
+}
+
 type DbSaveStatus = "saved" | "queued"
 type SortKey = "createdAt" | "deviceId" | "entryState" | "scanStatus" | "characterCount"
 type SortOrder = "asc" | "desc"
@@ -559,6 +574,47 @@ function scanSuccessResponse(reading: QrBiometricReading, scanId: string | null,
   })
 }
 
+async function latestCanonicalReading(): Promise<QrBiometricReading | null> {
+  const change = await prisma.attendanceChange.findFirst({
+    where: { audienceDeviceId: null, kind: "LATEST_SNAPSHOT" },
+    orderBy: { sequence: "desc" },
+    select: { snapshot: true, createdAt: true },
+  })
+  if (!change || !change.snapshot || typeof change.snapshot !== "object") return null
+
+  const snapshot = change.snapshot as CanonicalSnapshot
+  const event = snapshot.event
+  const student = snapshot.student
+  const eventId = typeof event?.eventId === "string" ? event.eventId : ""
+  const enrollment = typeof student?.enrollment === "string" ? student.enrollment : ""
+  if (!eventId || !enrollment) return null
+
+  const identityId = typeof student?.identityId === "string" ? student.identityId : null
+  const identity = identityId
+    ? await prisma.studentIdentity.findUnique({
+        where: { id: identityId },
+        select: { studentPhotoUrl: true },
+      })
+    : null
+  const sourceType = typeof event?.sourceType === "string" ? event.sourceType : "CANONICAL"
+  const name = typeof student?.name === "string" ? student.name : null
+  const occurredAt = typeof event?.occurredAt === "string" ? event.occurredAt : change.createdAt.toISOString()
+  return {
+    id: eventId,
+    deviceId: sourceType === "TAB5_MANUAL" || sourceType === "LEGACY" ? MANUAL_DEVICE_ID : sourceType,
+    decodedData: `canonical:${enrollment}`,
+    decodedUrl: null,
+    scanStatus: typeof event?.status === "string" ? event.status : "success",
+    entryState: normalizeEntryState(event?.entryState),
+    characterCount: enrollment.length,
+    studentInfo: { enrollmentNo: enrollment, ...(name ? { fullName: name } : {}) },
+    studentPhotoUrl: isStoredStudentPhotoUrl(identity?.studentPhotoUrl) ? identity?.studentPhotoUrl ?? null : null,
+    studentInfoStatus: name ? "scraped" : "not_applicable",
+    studentInfoError: null,
+    timestamp: occurredAt,
+  }
+}
+
 function isDurableCanonicalAttendanceStatus(status: string) {
   return status === "APPLIED" || status === "SUPPRESSED_DUPLICATE"
 }
@@ -891,7 +947,10 @@ export async function GET(request: NextRequest) {
   const paginated = paginateReadings(sorted, page, limit)
   const analysis = buildAnalysis(accessibleReadings)
   const stats = buildStats(merged)
-  const latest = accessibleReadings[0] ?? null
+  const canonicalLatest = !deviceId && !search && !from && !to && !manualEnrollment
+    ? await latestCanonicalReading().catch(() => null)
+    : null
+  const latest = canonicalLatest ?? accessibleReadings[0] ?? null
   const manualMatch = manualEnrollment
     ? (await findStoredReadingByEnrollment(manualEnrollment).catch(() => null)) ?? findReadingByEnrollment(accessibleReadings, manualEnrollment)
     : null
