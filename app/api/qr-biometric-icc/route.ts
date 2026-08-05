@@ -559,6 +559,10 @@ function scanSuccessResponse(reading: QrBiometricReading, scanId: string | null,
   })
 }
 
+function isDurableCanonicalAttendanceStatus(status: string) {
+  return status === "APPLIED" || status === "SUPPRESSED_DUPLICATE"
+}
+
 async function pruneStoredReadings(deviceId: string) {
   const overflow = await prisma.qrBiometricReading.findMany({
     where: { deviceId },
@@ -775,7 +779,7 @@ export async function POST(request: NextRequest) {
         console.error("[qr-biometric] Canonical replay repair failed", error)
         return null
       })
-      if (!canonical || canonical.status === "PENDING_PROFILE") {
+      if (!canonical || !isDurableCanonicalAttendanceStatus(canonical.status)) {
         return NextResponse.json({ success: false, module: "qr-biometric-icc", scanId, error: "Scan is stored but attendance processing is pending; retry with the same scanId" }, { status: 503 })
       }
       return scanSuccessResponse(canonical.reading, scanId, true)
@@ -793,7 +797,7 @@ export async function POST(request: NextRequest) {
       console.error("[qr-biometric] Canonical attendance dual-write failed", error)
       return null
     })
-    if ((!canonical || canonical.status === "PENDING_PROFILE") && scanId) {
+    if ((!canonical || !isDurableCanonicalAttendanceStatus(canonical.status)) && scanId) {
       return NextResponse.json({ success: false, module: "qr-biometric-icc", scanId, error: "Scan is stored but attendance processing is pending; retry with the same scanId" }, { status: 503 })
     }
     after(async () => {
@@ -823,7 +827,7 @@ export async function POST(request: NextRequest) {
       if (existingRecord) {
         if (matchesScanDelivery(existingRecord, deviceId, decodedData)) {
           const canonical = await canonicalizeStoredReading(toApiReading(existingRecord)).catch(() => null)
-          if (!canonical || canonical.status === "PENDING_PROFILE") {
+          if (!canonical || !isDurableCanonicalAttendanceStatus(canonical.status)) {
             return NextResponse.json({ success: false, module: "qr-biometric-icc", scanId, error: "Scan is stored but attendance processing is pending; retry with the same scanId" }, { status: 503 })
           }
           return scanSuccessResponse(canonical.reading, scanId, true)

@@ -11,6 +11,14 @@ export const revalidate = 0
 
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 50
+const RESPONSE_HEADERS = {
+  "cache-control": "private, no-store",
+  vary: "Authorization, X-Device-Id",
+}
+
+function json(body: object, status = 200) {
+  return NextResponse.json(body, { status, headers: RESPONSE_HEADERS })
+}
 
 function parseLimit(value: string | null) {
   if (!value) return DEFAULT_LIMIT
@@ -32,8 +40,8 @@ export async function GET(request: NextRequest) {
     console.error("[device-api] Feed authentication unavailable", error)
     return null
   })
-  if (!auth) return NextResponse.json({ success: false, error: "Device authentication temporarily unavailable" }, { status: 503 })
-  if (!auth.ok) return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
+  if (!auth) return json({ success: false, error: "Device authentication temporarily unavailable" }, 503)
+  if (!auth.ok) return json({ success: false, error: auth.error }, auth.status)
   after(async () => {
     await reconcilePendingCanonicalReadings().catch((error) => console.error("[device-api] Pending attendance reconciliation failed", error))
   })
@@ -52,11 +60,15 @@ export async function GET(request: NextRequest) {
       where: { audienceDeviceId: null },
       orderBy: { sequence: "desc" },
     })
+    const latestGlobalSnapshot = () => prisma.attendanceChange.findFirst({
+      where: { audienceDeviceId: null, kind: "LATEST_SNAPSHOT" },
+      orderBy: { sequence: "desc" },
+    })
 
     if (cursor === null || cursor > currentSequence) {
       const snapshot = await latestGlobal()
       const resetSequence = advanceAttendanceCursor(currentSequence, snapshot ? [snapshot.sequence] : [])
-      return NextResponse.json({
+      return json({
         success: true,
         schemaVersion: 1,
         reset: true,
@@ -72,7 +84,7 @@ export async function GET(request: NextRequest) {
     if (oldestRelevant && cursor + BigInt(1) < oldestRelevant.sequence) {
       const snapshot = await latestGlobal()
       const resetSequence = advanceAttendanceCursor(currentSequence, snapshot ? [snapshot.sequence] : [])
-      return NextResponse.json({
+      return json({
         success: true,
         schemaVersion: 1,
         reset: true,
@@ -94,8 +106,12 @@ export async function GET(request: NextRequest) {
     const nextSequence = hasMore
       ? page.at(-1)!.sequence
       : advanceAttendanceCursor(currentSequence, page.map((change) => change.sequence))
+    const latestSnapshot = await latestGlobalSnapshot()
+    const responsePage = latestSnapshot && !page.some((change) => change.sequence === latestSnapshot.sequence)
+      ? [...page, latestSnapshot]
+      : page
 
-    return NextResponse.json({
+    return json({
       success: true,
       schemaVersion: 1,
       reset: false,
@@ -103,10 +119,10 @@ export async function GET(request: NextRequest) {
       hasMore,
       retryAfterMs: ATTENDANCE_FEED_RETRY_MS,
       serverTime: new Date().toISOString(),
-      changes: page.map(toFeedChange),
+      changes: responsePage.map(toFeedChange),
     })
   } catch (error) {
     console.error("[device-api] Attendance feed unavailable", error)
-    return NextResponse.json({ success: false, error: "Attendance feed temporarily unavailable" }, { status: 503 })
+    return json({ success: false, error: "Attendance feed temporarily unavailable" }, 503)
   }
 }
