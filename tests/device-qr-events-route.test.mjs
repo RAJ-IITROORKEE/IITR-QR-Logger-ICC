@@ -15,6 +15,7 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
   }).outputText
   let created = 0
   let canonicalCalls = 0
+  let profileFetches = 0
   const conflict = class AttendanceEventConflictError extends Error {}
   const moduleRequire = (specifier) => {
     if (specifier === "node:crypto") return { createHash }
@@ -38,6 +39,9 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
           findUnique: async () => existing,
           create: async () => { created += 1; return {} },
         },
+        studentIdentity: {
+          findUnique: async () => null,
+        },
       },
     }
     throw new Error(`Unexpected module: ${specifier}`)
@@ -53,13 +57,16 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
     AbortController,
     console: { error() {} },
     createHash,
-    fetch: async () => new Response("<html></html>", { status: profile ? 200 : 503, headers: { "content-type": "text/html" } }),
+    fetch: async () => {
+      profileFetches += 1
+      return new Response("<html></html>", { status: profile ? 200 : 503, headers: { "content-type": "text/html" } })
+    },
     exports: module.exports,
     module,
     require: moduleRequire,
     setTimeout,
   }, { filename: ROUTE })
-  return { POST: module.exports.POST, stats: () => ({ created, canonicalCalls }) }
+  return { POST: module.exports.POST, stats: () => ({ created, canonicalCalls, profileFetches }) }
 }
 
 function request(body, headers = {}) {
@@ -88,13 +95,17 @@ test("first QR event is canonical and replay is idempotent", async () => {
   let response = await route.POST(request(validBody))
   assert.equal(response.status, 200)
   assert.equal((await response.json()).status, "APPLIED")
-  assert.deepEqual(route.stats(), { created: 1, canonicalCalls: 1 })
+  assert.deepEqual(route.stats(), { created: 1, canonicalCalls: 1, profileFetches: 1 })
 
-  const replay = loadRoute({ existing: { id: "same", deviceId: "TAB5-001", decodedData: QR_URL, createdAt: new Date() } })
+  const replay = loadRoute({ existing: {
+    id: "same", deviceId: "TAB5-001", decodedData: QR_URL, createdAt: new Date(),
+    studentInfo: { enrollmentNo: "24115114", fullName: "Ada Student" },
+  } })
   response = await replay.POST(request(validBody))
   assert.equal(response.status, 200)
   assert.equal((await response.json()).replayed, true)
   assert.equal(replay.stats().created, 0)
+  assert.equal(replay.stats().profileFetches, 0)
 })
 
 test("profile failure is retryable and does not create attendance", async () => {

@@ -6,6 +6,7 @@ import { authenticateAttendanceDevice } from "@/lib/attendance-device-auth"
 import { AttendanceEventConflictError, recordCanonicalQrAttendance } from "@/lib/attendance-ledger"
 import { isDoswStudentUrl, extractStudentInfo, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
+import type { QrStudentInfo } from "@/types/qr-biometric"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -59,6 +60,27 @@ async function readStudentProfile(decodedData: string) {
   }
 }
 
+function storedStudentInfo(value: unknown): QrStudentInfo | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const info: QrStudentInfo = {}
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw === "string" && raw.trim()) info[key] = raw.trim()
+  }
+  return info.enrollmentNo ? info : null
+}
+
+async function findKnownStudent(decodedData: string): Promise<QrStudentInfo | null> {
+  const identity = await prisma.studentIdentity?.findUnique({
+    where: { doswUrl: decodedData },
+    select: { enrollmentNo: true, fullName: true },
+  })
+  if (!identity?.enrollmentNo) return null
+  return {
+    enrollmentNo: identity.enrollmentNo,
+    ...(identity.fullName ? { fullName: identity.fullName } : {}),
+  }
+}
+
 export async function POST(request: NextRequest) {
   const auth = await authenticateAttendanceDevice(request.headers).catch((error) => {
     console.error("[device-api] QR event authentication unavailable", error)
@@ -91,14 +113,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const studentInfo = await readStudentProfile(decodedData)
-    if (!studentInfo) return json({ success: false, error: "Student profile could not be resolved" }, 503)
-
     const readingId = stableReadingId(auth.device.deviceId, scanId, decodedData)
     const existing = await prisma.qrBiometricReading.findUnique({ where: { id: readingId } })
     if (existing && (existing.deviceId !== auth.device.deviceId || existing.decodedData !== decodedData)) {
       return json({ success: false, error: "QR scan identity conflict" }, 409)
     }
+    const studentInfo = storedStudentInfo(existing?.studentInfo) ??
+      await findKnownStudent(decodedData) ??
+      await readStudentProfile(decodedData)
+    if (!studentInfo) return json({ success: false, error: "Student profile could not be resolved" }, 503)
     if (!existing) {
       await prisma.qrBiometricReading.create({
         data: {
