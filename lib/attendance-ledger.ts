@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import type { Prisma } from "@prisma/client"
 
 import {
@@ -10,6 +10,7 @@ import {
   type AttendanceTimeQuality,
   type ManualAttendanceBatch,
 } from "./attendance-device-contract.ts"
+import { hashFingerprintEventPayload, type FingerprintAttendanceBatch } from "./fingerprint-device-contract.ts"
 import type { AuthenticatedAttendanceDevice } from "./attendance-device-auth.ts"
 import { isStoredStudentPhotoUrl } from "./qr-biometric-photo.ts"
 import { isDoswStudentUrl, normalizeDecodedUrl } from "./qr-biometric-student.ts"
@@ -31,6 +32,13 @@ type AttendanceIdentity = {
 }
 
 export type ManualAttendanceResult = {
+  eventId: string
+  status: string
+  effectiveState: AttendanceEntryState | null
+  replayed: boolean
+}
+
+export type FingerprintAttendanceResult = {
   eventId: string
   status: string
   effectiveState: AttendanceEntryState | null
@@ -103,7 +111,14 @@ async function emitAttendanceChange(
 }
 
 function isAttendanceIntent(value: string): value is AttendanceIntent {
-  return value === "QR_TOGGLE" || value === "MANUAL_SET_IN" || value === "MANUAL_SET_OUT"
+  return value === "QR_TOGGLE" || value === "FINGERPRINT_TOGGLE" || value === "MANUAL_SET_IN" || value === "MANUAL_SET_OUT"
+}
+
+export class FingerprintEnrollmentConflictError extends Error {
+  constructor(message = "fingerprint slot is already assigned to another enrollment") {
+    super(message)
+    this.name = "FingerprintEnrollmentConflictError"
+  }
 }
 
 function isAttendanceTimeQuality(value: string): value is AttendanceTimeQuality {
@@ -266,6 +281,132 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
     }
 
     return batch.events.map((event) => outcomes.get(event.eventId)!)
+  })
+}
+
+export async function recordFingerprintAttendanceBatch(device: AuthenticatedAttendanceDevice, batch: FingerprintAttendanceBatch): Promise<FingerprintAttendanceResult[]> {
+  return runTransactionWithRetry(async (tx) => {
+    const outcomes = new Map<string, FingerprintAttendanceResult>()
+    const newEventIds = new Set<string>()
+    const identities = new Map<string, AttendanceIdentity>()
+    const touchedEnrollments = new Set<string>()
+    const now = new Date()
+
+    for (const event of batch.events) {
+      const payloadHash = hashFingerprintEventPayload(device.deviceId, batch.bootId, event)
+      const existing = await tx.attendanceEvent.findUnique({ where: { eventId: event.eventId } })
+      if (existing) {
+        if (existing.sourceDeviceId !== device.deviceId || existing.payloadHash !== payloadHash) throw new AttendanceEventConflictError()
+        outcomes.set(event.eventId, {
+          eventId: event.eventId,
+          status: existing.status,
+          effectiveState: existing.effectiveState as AttendanceEntryState | null,
+          replayed: true,
+        })
+        continue
+      }
+
+      const sequenceCollision = await tx.attendanceEvent.findFirst({
+        where: { sourceDeviceId: device.deviceId, deviceSequence: event.deviceSequence },
+        select: { eventId: true },
+      })
+      if (sequenceCollision) throw new AttendanceEventConflictError("deviceSequence is already assigned to another event")
+
+      const enrollment = await tx.fingerprintEnrollment.findFirst({
+        where: { deviceId: device.deviceId, fingerprintSlot: event.fingerprintSlot, state: "ACTIVE", enabled: true },
+      })
+      const slotMatchesIndex = !enrollment || enrollment.fingerprintIndex === null || event.fingerprintIndex === null || enrollment.fingerprintIndex === event.fingerprintIndex
+      const mappedEnrollment = slotMatchesIndex ? enrollment : null
+      let identity: AttendanceIdentity | null = null
+      if (mappedEnrollment) {
+        identity = await tx.studentIdentity.findUnique({ where: { enrollmentKey: mappedEnrollment.enrollmentKey } })
+        if (identity) identities.set(mappedEnrollment.enrollmentKey, identity)
+      }
+
+      const futureTimestamp = event.occurredAt.getTime() > now.getTime() + 5 * 60_000
+      const timeQuality = futureTimestamp ? "UNTRUSTED" : event.timeQuality
+      const status = !mappedEnrollment
+        ? "PENDING_FINGERPRINT_MAPPING"
+        : !identity
+          ? "PENDING_IDENTITY"
+          : timeQuality === "UNTRUSTED" ? "PENDING_TIME" : "APPLIED"
+
+      await tx.attendanceEvent.create({
+        data: {
+          eventId: event.eventId,
+          payloadHash,
+          sourceType: "FINGERPRINT",
+          sourceDeviceId: device.deviceId,
+          deviceSequence: event.deviceSequence,
+          bootId: batch.bootId,
+          intent: event.intent,
+          enrollmentKey: mappedEnrollment?.enrollmentKey,
+          studentIdentityId: identity?.id,
+          fingerprintSlot: event.fingerprintSlot,
+          fingerprintIndex: event.fingerprintIndex,
+          occurredAt: event.occurredAt,
+          timeQuality,
+          status,
+        },
+      })
+      newEventIds.add(event.eventId)
+      if (identity) touchedEnrollments.add(identity.enrollmentKey)
+      outcomes.set(event.eventId, { eventId: event.eventId, status, effectiveState: null, replayed: false })
+    }
+
+    for (const enrollmentKey of touchedEnrollments) {
+      const identity = identities.get(enrollmentKey)
+      if (!identity) continue
+      const rebuilt = await rebuildStudentProjection(tx, identity)
+      for (const result of rebuilt.events) {
+        const outcome = outcomes.get(result.eventId)
+        if (outcome) {
+          outcome.status = result.status
+          outcome.effectiveState = result.effectiveState
+        }
+      }
+    }
+
+    for (const eventId of newEventIds) {
+      const outcome = outcomes.get(eventId)!
+      await emitAttendanceChange(tx, "EVENT_STATUS", asInputJson(outcome), eventId, device.deviceId)
+    }
+
+    return batch.events.map((event) => outcomes.get(event.eventId)!)
+  })
+}
+
+export type CreateFingerprintEnrollmentInput = {
+  deviceId: string
+  enrollmentKey: string
+  fingerprintSlot: number
+  fingerprintIndex: number | null
+}
+
+export async function createFingerprintEnrollment(input: CreateFingerprintEnrollmentInput) {
+  return runTransactionWithRetry(async (tx) => {
+    const identity = await tx.studentIdentity.findUnique({ where: { enrollmentKey: input.enrollmentKey } })
+    if (!identity) throw new FingerprintEnrollmentConflictError("student identity was not found")
+    const existing = await tx.fingerprintEnrollment.findFirst({
+      where: { deviceId: input.deviceId, fingerprintSlot: input.fingerprintSlot },
+    })
+    if (existing) throw new FingerprintEnrollmentConflictError()
+
+    const enrollment = await tx.fingerprintEnrollment.create({
+      data: { ...input, state: "ENROLL_PENDING", enabled: false },
+    })
+    const command = await tx.fingerprintCommand.create({
+      data: {
+        commandId: `fp:${randomUUID()}`,
+        deviceId: input.deviceId,
+        commandType: "ENROLL",
+        enrollmentKey: input.enrollmentKey,
+        fingerprintSlot: input.fingerprintSlot,
+        fingerprintIndex: input.fingerprintIndex,
+        payload: {},
+      },
+    })
+    return { enrollment, command }
   })
 }
 

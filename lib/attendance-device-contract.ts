@@ -5,7 +5,7 @@ export const ATTENDANCE_BATCH_MAX_BYTES = 32 * 1024
 export const ATTENDANCE_DUPLICATE_WINDOW_MS = 30_000
 export const ATTENDANCE_FEED_RETRY_MS = 1_500
 
-export type AttendanceIntent = "QR_TOGGLE" | "MANUAL_SET_IN" | "MANUAL_SET_OUT"
+export type AttendanceIntent = "QR_TOGGLE" | "FINGERPRINT_TOGGLE" | "MANUAL_SET_IN" | "MANUAL_SET_OUT"
 export type AttendanceTimeQuality = "SERVER" | "SYNCED_RTC" | "UNTRUSTED"
 export type AttendanceEventStatus = "APPLIED" | "SUPPRESSED_DUPLICATE" | "PENDING_TIME"
 export type AttendanceEntryState = "IN" | "OUT"
@@ -146,7 +146,7 @@ export function advanceAttendanceCursor(current: bigint, deliveredSequences: big
 }
 
 function intentRank(intent: AttendanceIntent): number {
-  return intent === "QR_TOGGLE" ? 1 : 0
+  return intent === "QR_TOGGLE" || intent === "FINGERPRINT_TOGGLE" ? 1 : 0
 }
 
 function compareDeviceSequence(left: string | null, right: string | null): number {
@@ -189,7 +189,7 @@ export function rebuildAttendanceProjection(events: ProjectionInputEvent[], dupl
       continue
     }
 
-    if (event.intent === "QR_TOGGLE") currentState = currentState === "IN" ? "OUT" : "IN"
+    if (event.intent === "QR_TOGGLE" || event.intent === "FINGERPRINT_TOGGLE") currentState = currentState === "IN" ? "OUT" : "IN"
     else currentState = event.intent === "MANUAL_SET_IN" ? "IN" : "OUT"
 
     previousAcceptedAt = occurredAt

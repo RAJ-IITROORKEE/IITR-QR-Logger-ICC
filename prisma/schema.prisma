@@ -122,6 +122,8 @@ model AttendanceEvent {
   effectiveState     String?
   duplicateOfEventId String?
   projectionVersion  Int?
+  fingerprintSlot    Int?
+  fingerprintIndex   Int?
   voidedAt           DateTime?
   voidReason         String?
   createdAt          DateTime  @default(now())
@@ -130,8 +132,48 @@ model AttendanceEvent {
   @@index([enrollmentKey, status, occurredAt])
   @@index([studentIdentityId, occurredAt])
   @@index([sourceDeviceId, deviceSequence])
+  @@index([sourceDeviceId, fingerprintSlot, fingerprintIndex])
   @@index([status, updatedAt])
   @@map("attendance_events")
+}
+
+model FingerprintEnrollment {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  deviceId         String
+  enrollmentKey    String
+  fingerprintSlot  Int
+  fingerprintIndex Int?
+  state            String   @default("ENROLL_PENDING")
+  enabled          Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([deviceId, fingerprintSlot])
+  @@index([deviceId, enrollmentKey])
+  @@index([enrollmentKey])
+  @@map("fingerprint_enrollments")
+}
+
+model FingerprintCommand {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  commandId        String   @unique
+  deviceId         String
+  commandType      String
+  enrollmentKey    String?
+  fingerprintSlot  Int?
+  fingerprintIndex Int?
+  payload          Json?
+  status           String   @default("PENDING")
+  errorMessage     String?
+  deliveredAt      DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([deviceId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([deviceId, fingerprintSlot])
+  @@map("fingerprint_commands")
 }
 
 model AttendanceProjection {

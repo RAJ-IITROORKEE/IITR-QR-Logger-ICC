@@ -7,6 +7,7 @@ import {
   BarChart3,
   KeyRound,
   Headphones,
+  Fingerprint,
   Home,
   LayoutDashboard,
   LogOut,
@@ -67,6 +68,7 @@ const primaryLinks: NavItem[] = [
   { href: "/admin/access", label: "Access", description: "Create and update staff credentials", icon: KeyRound },
   { href: "/admin/support", label: "Support", description: "User issues and enquiries", icon: Headphones },
   { href: "/admin/settings", label: "Settings", description: "Devices and API endpoint details", icon: Settings },
+  { href: "/admin/fingerprint", label: "Fingerprint", description: "Map biometric slots and review pending events", icon: Fingerprint },
 ]
 
 const secondaryLinks: NavItem[] = [
