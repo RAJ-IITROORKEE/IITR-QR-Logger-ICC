@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from "react"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { Activity, ArrowUpDown, BarChart3, CalendarDays, Database, Download, Eye, LineChart, RefreshCw, Search, Trash2, Users } from "lucide-react"
 
@@ -396,6 +396,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const fetchControllerRef = useRef<AbortController | null>(null)
+  const changeSequenceRef = useRef<string | null>(null)
   const limit = mode === "dashboard" ? 12 : 25
 
   const fetchData = useCallback(async () => {
@@ -414,6 +415,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
       if (!response.ok || !result) throw new Error(result?.error ?? `Dashboard request failed (${response.status})`)
       if (controller.signal.aborted) return
       setData(result)
+      if (result.changeSequence) changeSequenceRef.current = result.changeSequence
       setHasLoadedData(true)
       setFetchError(result.warning ?? null)
     } catch (error) {
@@ -424,14 +426,62 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
     }
   }, [from, limit, month, order, page, search, sort, to])
 
+  const refreshForChange = useEffectEvent(async () => {
+    await fetchData()
+  })
+
   useEffect(() => {
     const initial = window.setTimeout(() => void fetchData(), 0)
-    const interval = window.setInterval(() => void fetchData(), 12000)
     return () => {
       window.clearTimeout(initial)
-      window.clearInterval(interval)
       fetchControllerRef.current?.abort()
     }
+  }, [fetchData])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer = 0
+    let failureRetryMs = 1500
+    const poll = async () => {
+      let retryAfterMs = 1500
+      try {
+        if (document.visibilityState !== "visible") {
+          retryAfterMs = 5000
+          return
+        }
+        const response = await fetch("/api/qr-biometric-icc/changes", { cache: "no-store", signal: controller.signal })
+        const result = (await response.json().catch(() => null)) as { success?: boolean; sequence?: string; retryAfterMs?: number } | null
+        if (!response.ok || !result?.success || !result.sequence) throw new Error("Change feed unavailable")
+        failureRetryMs = 1500
+        retryAfterMs = result.retryAfterMs ?? retryAfterMs
+        if (changeSequenceRef.current === null) changeSequenceRef.current = result.sequence
+        else if (changeSequenceRef.current !== result.sequence) {
+          await refreshForChange()
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          retryAfterMs = failureRetryMs
+          failureRetryMs = Math.min(failureRetryMs * 2, 30000)
+          if (error instanceof Error && error.name !== "AbortError") {
+            console.warn("QR admin change polling failed", error)
+          }
+        }
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(() => void poll(), retryAfterMs)
+      }
+    }
+    timer = window.setTimeout(() => void poll(), 1500)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    const fallback = window.setInterval(() => {
+      if (document.visibilityState === "visible") void fetchData()
+    }, 30000)
+    return () => window.clearInterval(fallback)
   }, [fetchData])
 
   async function deleteReading(id: string) {
@@ -459,14 +509,22 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
     setActionMessage(null)
     setActionError(null)
     try {
-      const response = await fetch("/api/qr-biometric-icc", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clearAll: true, month: month || undefined, from: from || undefined, to: to || undefined }),
-      })
-      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; deletedCount?: number }
-      if (!response.ok || !result.success) throw new Error(result.error ?? "Logs could not be cleared")
-      setActionMessage(`Deleted ${result.deletedCount ?? 0} logs. The selected records are tombstoned against device replay.`)
+      let deletedCount = 0
+      let hasMore = true
+      while (hasMore) {
+        const response = await fetch("/api/qr-biometric-icc", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clearAll: true, month: month || undefined, from: from || undefined, to: to || undefined }),
+        })
+        const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; deletedCount?: number; hasMore?: boolean }
+        if (!response.ok || !result.success) throw new Error(result.error ?? "Logs could not be cleared")
+        const deletedThisBatch = result.deletedCount ?? 0
+        deletedCount += deletedThisBatch
+        hasMore = Boolean(result.hasMore)
+        if (hasMore && deletedThisBatch === 0) throw new Error("Log deletion made no progress")
+      }
+      setActionMessage(`Deleted ${deletedCount} logs. The selected records are tombstoned against device replay.`)
       setPage(1)
       await fetchData()
     } catch (error) {

@@ -88,12 +88,11 @@ async function main() {
       { q: { apiVersion: { $exists: false } }, u: { $set: { apiVersion: 1 } }, multi: true },
     ],
   })
-
   const stats = new Map<string, number>()
-  const selectedCandidates = candidates.slice(0, limit)
   const existingEventIds = new Set((await prisma.attendanceEvent.findMany({ select: { eventId: true } })).map((event) => event.eventId))
-  const pendingCandidates = selectedCandidates.filter((row) => !existingEventIds.has(row.deviceId === "MANUAL" ? `legacy:${row.id}` : `qr:${row.id}`))
-  if (selectedCandidates.length > pendingCandidates.length) stats.set("ALREADY_PRESENT", selectedCandidates.length - pendingCandidates.length)
+  const allPendingCandidates = candidates.filter((row) => !existingEventIds.has(row.deviceId === "MANUAL" ? `legacy:${row.id}` : `qr:${row.id}`))
+  const pendingCandidates = allPendingCandidates.slice(0, limit)
+  stats.set("ALREADY_PRESENT", candidates.length - allPendingCandidates.length)
 
   for (const [index, row] of pendingCandidates.entries()) {
     const manual = row.deviceId === "MANUAL"

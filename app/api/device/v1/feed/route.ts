@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const rawCursor = url.searchParams.get("cursor")
   const cursor = rawCursor === null ? null : decodeAttendanceCursor(rawCursor)
-  if (rawCursor !== null && cursor === null) return NextResponse.json({ success: false, error: "Invalid attendance cursor" }, { status: 400 })
+  if (rawCursor !== null && cursor === null) return json({ success: false, error: "Invalid attendance cursor" }, 400)
   const limit = parseLimit(url.searchParams.get("limit"))
 
   try {

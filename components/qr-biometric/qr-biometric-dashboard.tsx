@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useEffectEvent, useRef, useState, type FormEvent } from "react"
 import { CheckCircle2, Clock3, Database, Fingerprint, Loader2, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, WifiOff } from "lucide-react"
 import { toast } from "sonner"
 
@@ -48,6 +48,7 @@ interface QrApiResponse {
     defaultEntryState: QrEntryState | null
     reading: QrBiometricReading | null
   } | null
+  changeSequence?: string
 }
 
 interface QrManualPostResponse {
@@ -130,6 +131,7 @@ export function QrBiometricDashboard() {
   const [manualCurrentStatus, setManualCurrentStatus] = useState<QrEntryState | null>(null)
   const [manualEntryState, setManualEntryState] = useState<QrEntryState>("IN")
   const fetchControllerRef = useRef<AbortController | null>(null)
+  const changeSequenceRef = useRef<string | null>(null)
 
   const fetchData = useCallback(async () => {
     fetchControllerRef.current?.abort()
@@ -144,6 +146,7 @@ export function QrBiometricDashboard() {
       if (!response.ok || !result) throw new Error(result?.error ?? `Dashboard request failed (${response.status})`)
       if (controller.signal.aborted) return
       setData(result)
+      if (result.changeSequence) changeSequenceRef.current = result.changeSequence
       setHasLoadedData(true)
       setFetchError(result.warning ?? null)
     } catch (error) {
@@ -154,14 +157,62 @@ export function QrBiometricDashboard() {
     }
   }, [page, search])
 
+  const refreshForChange = useEffectEvent(async () => {
+    await fetchData()
+  })
+
   useEffect(() => {
     const initial = window.setTimeout(() => void fetchData(), 0)
-    const interval = window.setInterval(() => void fetchData(), 10000)
     return () => {
       window.clearTimeout(initial)
-      window.clearInterval(interval)
       fetchControllerRef.current?.abort()
     }
+  }, [fetchData])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let timer = 0
+    let failureRetryMs = 1500
+    const poll = async () => {
+      let retryAfterMs = 1500
+      try {
+        if (document.visibilityState !== "visible") {
+          retryAfterMs = 5000
+          return
+        }
+        const response = await fetch("/api/qr-biometric-icc/changes", { cache: "no-store", signal: controller.signal })
+        const result = (await response.json().catch(() => null)) as { success?: boolean; sequence?: string; retryAfterMs?: number } | null
+        if (!response.ok || !result?.success || !result.sequence) throw new Error("Change feed unavailable")
+        failureRetryMs = 1500
+        retryAfterMs = result.retryAfterMs ?? retryAfterMs
+        if (changeSequenceRef.current === null) changeSequenceRef.current = result.sequence
+        else if (changeSequenceRef.current !== result.sequence) {
+          await refreshForChange()
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          retryAfterMs = failureRetryMs
+          failureRetryMs = Math.min(failureRetryMs * 2, 30000)
+          if (error instanceof Error && error.name !== "AbortError") {
+            console.warn("QR dashboard change polling failed", error)
+          }
+        }
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(() => void poll(), retryAfterMs)
+      }
+    }
+    timer = window.setTimeout(() => void poll(), 1500)
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    const fallback = window.setInterval(() => {
+      if (document.visibilityState === "visible") void fetchData()
+    }, 30000)
+    return () => window.clearInterval(fallback)
   }, [fetchData])
 
   const latest = data.latest

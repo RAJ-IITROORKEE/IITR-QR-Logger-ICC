@@ -145,6 +145,17 @@ export function advanceAttendanceCursor(current: bigint, deliveredSequences: big
   return deliveredSequences.reduce((highest, sequence) => sequence > highest ? sequence : highest, current)
 }
 
+export function attendanceEventDeduplicationKey(sourceDeviceId: string, deviceSequence: string | null, eventId: string): string {
+  return deviceSequence === null ? `event:${eventId}` : `manual:${sourceDeviceId}:${deviceSequence}`
+}
+
+export function chunkAttendanceReadingIds(readingIds: string[], batchSize = 50): string[][] {
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1) throw new Error("Attendance deletion batch size must be positive")
+  const batches: string[][] = []
+  for (let index = 0; index < readingIds.length; index += batchSize) batches.push(readingIds.slice(index, index + batchSize))
+  return batches
+}
+
 function intentRank(intent: AttendanceIntent): number {
   return intent === "QR_TOGGLE" || intent === "FINGERPRINT_TOGGLE" ? 1 : 0
 }
@@ -185,7 +196,7 @@ export function rebuildAttendanceProjection(events: ProjectionInputEvent[], dupl
 
     const occurredAt = event.occurredAt.getTime()
     if (previousAcceptedAt !== null && occurredAt - previousAcceptedAt < duplicateWindowMs) {
-      results.push({ ...event, status: "SUPPRESSED_DUPLICATE", effectiveState: null })
+      results.push({ ...event, status: "SUPPRESSED_DUPLICATE", effectiveState: currentState })
       continue
     }
 

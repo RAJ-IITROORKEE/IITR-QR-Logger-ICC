@@ -106,6 +106,7 @@ model StudentIdentity {
 model AttendanceEvent {
   id                 String    @id @default(auto()) @map("_id") @db.ObjectId
   eventId            String    @unique
+  deduplicationKey   String    @unique
   payloadHash        String
   sourceType         String
   sourceDeviceId     String

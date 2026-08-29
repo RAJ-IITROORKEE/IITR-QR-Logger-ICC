@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto"
 import type { Prisma } from "@prisma/client"
 
 import {
+  attendanceEventDeduplicationKey,
+  chunkAttendanceReadingIds,
   hashManualAttendancePayload,
   normalizeEnrollmentKey,
   rebuildAttendanceProjection,
@@ -145,17 +147,30 @@ async function rebuildStudentProjection(tx: Transaction, identity: AttendanceIde
   const previousProjection = await tx.attendanceProjection.findUnique({ where: { enrollmentKey: identity.enrollmentKey } })
   const projectionVersion = (previousProjection?.version ?? 0) + 1
   const storedByEventId = new Map(storedEvents.map((event) => [event.eventId, event]))
+  const readingIdsByState: Record<AttendanceEntryState, string[]> = { IN: [], OUT: [] }
 
   for (const event of rebuilt.events) {
     const storedEvent = storedByEventId.get(event.eventId)
-    if (storedEvent?.status === event.status && storedEvent.effectiveState === event.effectiveState) continue
-    await tx.attendanceEvent.update({
-      where: { eventId: event.eventId },
-      data: {
-        status: event.status,
-        effectiveState: event.effectiveState,
-        projectionVersion,
-      },
+    if (storedEvent?.status !== event.status || storedEvent.effectiveState !== event.effectiveState) {
+      await tx.attendanceEvent.update({
+        where: { eventId: event.eventId },
+        data: {
+          status: event.status,
+          effectiveState: event.effectiveState,
+          projectionVersion,
+        },
+      })
+    }
+    const readingId = event.eventId.startsWith("qr:")
+      ? event.eventId.slice(3)
+      : event.eventId.startsWith("legacy:") ? event.eventId.slice(7) : null
+    if (readingId && event.effectiveState) readingIdsByState[event.effectiveState].push(readingId)
+  }
+  for (const entryState of ["IN", "OUT"] as const) {
+    if (readingIdsByState[entryState].length === 0) continue
+    await tx.qrBiometricReading.updateMany({
+      where: { id: { in: readingIdsByState[entryState] }, entryState: { not: entryState } },
+      data: { entryState },
     })
   }
 
@@ -214,6 +229,7 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
 
     for (const event of batch.events) {
       const payloadHash = hashManualAttendancePayload(device.deviceId, batch.bootId, event)
+      const deduplicationKey = attendanceEventDeduplicationKey(device.deviceId, event.deviceSequence, event.eventId)
       const existing = await tx.attendanceEvent.findUnique({ where: { eventId: event.eventId } })
       if (existing) {
         if (existing.sourceDeviceId !== device.deviceId || existing.payloadHash !== payloadHash) throw new AttendanceEventConflictError()
@@ -226,8 +242,8 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
         continue
       }
 
-      const sequenceCollision = await tx.attendanceEvent.findFirst({
-        where: { sourceDeviceId: device.deviceId, deviceSequence: event.deviceSequence },
+      const sequenceCollision = await tx.attendanceEvent.findUnique({
+        where: { deduplicationKey },
         select: { eventId: true },
       })
       if (sequenceCollision) throw new AttendanceEventConflictError("deviceSequence is already assigned to another event")
@@ -244,6 +260,7 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
       await tx.attendanceEvent.create({
         data: {
           eventId: event.eventId,
+          deduplicationKey,
           payloadHash,
           sourceType: "TAB5_MANUAL",
           sourceDeviceId: device.deviceId,
@@ -294,6 +311,7 @@ export async function recordFingerprintAttendanceBatch(device: AuthenticatedAtte
 
     for (const event of batch.events) {
       const payloadHash = hashFingerprintEventPayload(device.deviceId, batch.bootId, event)
+      const deduplicationKey = attendanceEventDeduplicationKey(device.deviceId, event.deviceSequence, event.eventId)
       const existing = await tx.attendanceEvent.findUnique({ where: { eventId: event.eventId } })
       if (existing) {
         if (existing.sourceDeviceId !== device.deviceId || existing.payloadHash !== payloadHash) throw new AttendanceEventConflictError()
@@ -306,8 +324,8 @@ export async function recordFingerprintAttendanceBatch(device: AuthenticatedAtte
         continue
       }
 
-      const sequenceCollision = await tx.attendanceEvent.findFirst({
-        where: { sourceDeviceId: device.deviceId, deviceSequence: event.deviceSequence },
+      const sequenceCollision = await tx.attendanceEvent.findUnique({
+        where: { deduplicationKey },
         select: { eventId: true },
       })
       if (sequenceCollision) throw new AttendanceEventConflictError("deviceSequence is already assigned to another event")
@@ -334,6 +352,7 @@ export async function recordFingerprintAttendanceBatch(device: AuthenticatedAtte
       await tx.attendanceEvent.create({
         data: {
           eventId: event.eventId,
+          deduplicationKey,
           payloadHash,
           sourceType: "FINGERPRINT",
           sourceDeviceId: device.deviceId,
@@ -430,6 +449,7 @@ export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceIn
   const eventId = options.eventId ?? `qr:${input.readingId}`
   const sourceType = options.sourceType ?? "QR"
   const intent = options.intent ?? "QR_TOGGLE"
+  const deduplicationKey = attendanceEventDeduplicationKey(input.sourceDeviceId, null, eventId)
   const payloadHash = canonicalQrPayloadHash(input, enrollmentKey, eventId, sourceType, intent)
   return runTransactionWithRetry(async (tx) => {
     const [rawReading, deletion] = await Promise.all([
@@ -457,6 +477,7 @@ export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceIn
       await tx.attendanceEvent.create({
         data: {
           eventId,
+          deduplicationKey,
           payloadHash,
           sourceType,
           sourceDeviceId: input.sourceDeviceId,
@@ -503,6 +524,7 @@ export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceIn
     await tx.attendanceEvent.create({
       data: {
         eventId,
+        deduplicationKey,
         payloadHash,
         sourceType,
         sourceDeviceId: input.sourceDeviceId,
@@ -562,22 +584,29 @@ async function voidCanonicalAttendanceForReadingsInTransaction(tx: Transaction, 
 
 export async function deleteCanonicalAttendanceReadings(readingIds: string[], reason: string) {
   if (readingIds.length === 0) return { deletedReadings: 0, voidedEvents: 0 }
-  return runTransactionWithRetry(async (tx) => {
-    const readings = await tx.qrBiometricReading.findMany({
-      where: { id: { in: readingIds } },
-      select: { id: true, deviceId: true, decodedData: true },
-    })
-    for (const reading of readings) {
-      await tx.qrBiometricDeletion.upsert({
-        where: { scanId: reading.id },
-        create: { scanId: reading.id, deviceId: reading.deviceId, decodedData: reading.decodedData },
-        update: {},
+  let deletedReadings = 0
+  let voidedEvents = 0
+  for (const batch of chunkAttendanceReadingIds(readingIds)) {
+    const result = await runTransactionWithRetry(async (tx) => {
+      const readings = await tx.qrBiometricReading.findMany({
+        where: { id: { in: batch } },
+        select: { id: true, deviceId: true, decodedData: true },
       })
-    }
-    const voidedEvents = await voidCanonicalAttendanceForReadingsInTransaction(tx, readings.map((reading) => reading.id), reason)
-    const deleted = await tx.qrBiometricReading.deleteMany({ where: { id: { in: readings.map((reading) => reading.id) } } })
-    return { deletedReadings: deleted.count, voidedEvents }
-  })
+      for (const reading of readings) {
+        await tx.qrBiometricDeletion.upsert({
+          where: { scanId: reading.id },
+          create: { scanId: reading.id, deviceId: reading.deviceId, decodedData: reading.decodedData },
+          update: {},
+        })
+      }
+      const voided = await voidCanonicalAttendanceForReadingsInTransaction(tx, readings.map((reading) => reading.id), reason)
+      const deleted = await tx.qrBiometricReading.deleteMany({ where: { id: { in: readings.map((reading) => reading.id) } } })
+      return { deletedReadings: deleted.count, voidedEvents: voided }
+    })
+    deletedReadings += result.deletedReadings
+    voidedEvents += result.voidedEvents
+  }
+  return { deletedReadings, voidedEvents }
 }
 
 export async function reconcilePendingCanonicalReadings(limit = 10) {

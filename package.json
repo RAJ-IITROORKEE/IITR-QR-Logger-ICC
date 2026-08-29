@@ -10,6 +10,7 @@
     "test": "node --test",
     "photos:backfill": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/backfill-student-photos.mts",
     "attendance:backfill": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/backfill-attendance-ledger.mts",
+    "attendance:migrate-dedup": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/migrate-attendance-deduplication.mts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"

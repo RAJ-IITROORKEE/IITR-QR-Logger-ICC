@@ -87,6 +87,7 @@ export interface QrBiometricAnalysis extends QrBiometricStats {
 }
 
 export interface QrBiometricApiResponse {
+  changeSequence?: string
   success: boolean
   module: string
   endpoint: string

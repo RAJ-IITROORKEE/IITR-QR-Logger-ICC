@@ -19,6 +19,8 @@ function loadTypeScriptModule(filePath) {
 
 const {
   advanceAttendanceCursor,
+  attendanceEventDeduplicationKey,
+  chunkAttendanceReadingIds,
   decodeAttendanceCursor,
   encodeAttendanceCursor,
   hashManualAttendancePayload,
@@ -187,8 +189,31 @@ test("uses explicit manual state and suppresses attendance within the cooldown",
 
   assert.equal(result.events[0].effectiveState, "OUT")
   assert.equal(result.events[1].status, "SUPPRESSED_DUPLICATE")
+  assert.equal(result.events[1].effectiveState, "OUT")
   assert.equal(result.events[2].effectiveState, "IN")
   assert.equal(result.currentState, "IN")
+})
+
+test("deduplicates manual device sequences independently of event IDs", () => {
+  assert.equal(
+    attendanceEventDeduplicationKey("TAB5-001", "42", "event-a"),
+    attendanceEventDeduplicationKey("TAB5-001", "42", "event-b"),
+  )
+  assert.notEqual(
+    attendanceEventDeduplicationKey("TAB5-001", "42", "event-a"),
+    attendanceEventDeduplicationKey("TAB5-002", "42", "event-a"),
+  )
+  assert.notEqual(
+    attendanceEventDeduplicationKey("QRB-001", null, "qr:a"),
+    attendanceEventDeduplicationKey("QRB-001", null, "qr:b"),
+  )
+})
+
+test("bounds attendance deletion transaction batches", () => {
+  assert.equal(
+    JSON.stringify(chunkAttendanceReadingIds(["a", "b", "c", "d", "e"], 2)),
+    JSON.stringify([["a", "b"], ["c", "d"], ["e"]]),
+  )
 })
 
 test("keeps events with untrusted time pending and outside the projection", () => {
