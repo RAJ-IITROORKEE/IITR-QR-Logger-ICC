@@ -12,7 +12,9 @@ import {
 } from "./protocol.mjs"
 
 const AUTH_TIMEOUT_MS = 5_000
-const UPSTREAM_TIMEOUT_MS = 20_000
+const UPSTREAM_TIMEOUT_MS = 22_000
+const UPSTREAM_OPERATION_TIMEOUT_MS = 60_000
+const COMPLETED_SCAN_TTL_MS = 60_000
 const HEARTBEAT_MS = 15_000
 const MAX_BUFFERED_BYTES = 256 * 1024
 const RATE_WINDOW_MS = 1_000
@@ -53,6 +55,16 @@ async function upstreamPost(baseUrl, apiKey, payload, timeoutMs) {
   }
 }
 
+function waitForOperation(operation, timeoutMs) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve({ pending: true }), timeoutMs)
+    operation.then((value) => {
+      clearTimeout(timeout)
+      resolve({ pending: false, value })
+    })
+  })
+}
+
 export function createRelayServer({
   upstreamBaseUrl,
   tokenSecret,
@@ -62,6 +74,7 @@ export function createRelayServer({
   allowInsecureUpstream = false,
   authTimeoutMs = AUTH_TIMEOUT_MS,
   upstreamTimeoutMs = UPSTREAM_TIMEOUT_MS,
+  upstreamOperationTimeoutMs = UPSTREAM_OPERATION_TIMEOUT_MS,
   logger = console,
 }) {
   if (!upstreamBaseUrl) throw new Error("UPSTREAM_BASE_URL is required")
@@ -75,9 +88,20 @@ export function createRelayServer({
   if (parsedBaseUrl.protocol !== "https:" && !allowInsecureUpstream) throw new Error("UPSTREAM_BASE_URL must use HTTPS")
   if (parsedBaseUrl.username || parsedBaseUrl.password || parsedBaseUrl.search || parsedBaseUrl.hash) throw new Error("UPSTREAM_BASE_URL must not contain credentials, query, or fragment")
   const baseUrl = parsedBaseUrl.toString().replace(/\/$/, "")
-  const metrics = { connections: 0, scanners: 0, audiences: 0, durableAcks: 0, upstreamFailures: 0 }
+  const metrics = {
+    connections: 0,
+    scanners: 0,
+    audiences: 0,
+    durableAcks: 0,
+    upstreamFailures: 0,
+    upstreamRequests: 0,
+    lastUpstreamMs: 0,
+    maxUpstreamMs: 0,
+    totalUpstreamMs: 0,
+  }
   const audiences = new Set()
   const scanners = new Map()
+  const scanOperations = new Map()
   const states = new WeakMap()
 
   const httpServer = createServer((request, response) => {
@@ -183,12 +207,52 @@ export function createRelayServer({
       state.scanTimes.push(now)
       state.processing = true
       try {
-        const upstream = await upstreamPost(baseUrl, state.apiKey, {
-          deviceId: state.deviceId,
-          macAddress: state.macAddress,
-          scanId: scan.value.scanId,
-          decodedData: scan.value.decodedData,
-        }, upstreamTimeoutMs)
+        const operationKey = `${state.deviceId}:${scan.value.scanId}`
+        let operation = scanOperations.get(operationKey)
+        if (operation && operation.decodedData !== scan.value.decodedData) {
+          send(socket, { type: "scan.result", scanId: scan.value.scanId, httpStatus: 409, retryable: false, result: { error: "scanId is already assigned to different data" } })
+          return
+        }
+        if (!operation) {
+          const upstreamStartedAt = Date.now()
+          const promise = upstreamPost(baseUrl, state.apiKey, {
+            deviceId: state.deviceId,
+            macAddress: state.macAddress,
+            scanId: scan.value.scanId,
+            decodedData: scan.value.decodedData,
+          }, upstreamOperationTimeoutMs).then((upstream) => {
+            const upstreamMs = Date.now() - upstreamStartedAt
+            metrics.upstreamRequests++
+            metrics.lastUpstreamMs = upstreamMs
+            metrics.maxUpstreamMs = Math.max(metrics.maxUpstreamMs, upstreamMs)
+            metrics.totalUpstreamMs += upstreamMs
+            logger.info?.("Scan upstream completed", {
+              deviceId: state.deviceId,
+              scanId: scan.value.scanId,
+              status: upstream.status,
+              upstreamMs,
+            })
+            return upstream
+          })
+          operation = { decodedData: scan.value.decodedData, promise }
+          scanOperations.set(operationKey, operation)
+          promise.then((upstream) => {
+            if (!durableAcknowledgement(upstream.status, upstream.body, scan.value.scanId)) {
+              if (scanOperations.get(operationKey) === operation) scanOperations.delete(operationKey)
+              return
+            }
+            const cleanup = setTimeout(() => {
+              if (scanOperations.get(operationKey) === operation) scanOperations.delete(operationKey)
+            }, COMPLETED_SCAN_TTL_MS)
+            cleanup.unref()
+          })
+        }
+        const waited = await waitForOperation(operation.promise, upstreamTimeoutMs)
+        if (waited.pending) {
+          send(socket, { type: "scan.result", scanId: scan.value.scanId, httpStatus: 503, retryable: true, result: { error: "Upstream processing is still pending" } })
+          return
+        }
+        const upstream = waited.value
         if (durableAcknowledgement(upstream.status, upstream.body, scan.value.scanId)) {
           metrics.durableAcks++
           send(socket, { type: "scan.ack", scanId: scan.value.scanId, httpStatus: upstream.status, result: upstream.body })

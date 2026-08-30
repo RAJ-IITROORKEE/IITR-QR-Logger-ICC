@@ -170,3 +170,118 @@ test("does not time out a structurally valid scanner while upstream auth is runn
   t.after(() => scanner.close())
   assert.equal(scanner.readyState, WebSocket.OPEN)
 })
+
+test("reports the measured upstream scan latency", async (t) => {
+  const upstream = createServer(async (request, response) => {
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    const body = JSON.parse(Buffer.concat(chunks).toString())
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    response.setHeader("content-type", "application/json")
+    response.end(JSON.stringify({ success: true, scanId: body.scanId, entryState: "IN", persistence: { status: "saved" } }))
+  })
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+  t.after(() => upstream.close())
+  const relay = createRelayServer({
+    upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    tokenSecret,
+    port: 0,
+    host: "127.0.0.1",
+    skipScannerOnlineCheck: true,
+    allowInsecureUpstream: true,
+  })
+  await relay.start()
+  t.after(() => relay.stop())
+  const baseUrl = `http://127.0.0.1:${relay.address().port}`
+  const scanner = await openClient(baseUrl.replace("http:", "ws:") + "/v1/realtime", { v: 1, type: "auth", role: "scanner", deviceId: scannerId, apiKey: scannerKey, macAddress: scannerMac })
+  t.after(() => scanner.close())
+
+  const acknowledgement = waitForMessage(scanner, "scan.ack")
+  scanner.send(JSON.stringify({ v: 1, type: "scan.submit", scanId: "c".repeat(24), decodedData: "https://dosw.iitr.ac.in/StudentProxy.aspx?id=3" }))
+  await acknowledgement
+
+  const metrics = await (await fetch(`${baseUrl}/metrics`)).json()
+  assert.equal(metrics.upstreamRequests, 1)
+  assert.ok(metrics.lastUpstreamMs >= 35)
+  assert.ok(metrics.maxUpstreamMs >= metrics.lastUpstreamMs)
+})
+
+test("reuses one in-flight upstream request when the scanner retries after a relay timeout", async (t) => {
+  let requests = 0
+  let concurrent = 0
+  let maxConcurrent = 0
+  const upstream = createServer(async (request, response) => {
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    const body = JSON.parse(Buffer.concat(chunks).toString())
+    requests++
+    concurrent++
+    maxConcurrent = Math.max(maxConcurrent, concurrent)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    concurrent--
+    response.setHeader("content-type", "application/json")
+    response.end(JSON.stringify({ success: true, scanId: body.scanId, entryState: "IN", persistence: { status: "saved" } }))
+  })
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+  t.after(() => upstream.close())
+  const relay = createRelayServer({
+    upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`,
+    tokenSecret,
+    port: 0,
+    host: "127.0.0.1",
+    skipScannerOnlineCheck: true,
+    allowInsecureUpstream: true,
+    upstreamTimeoutMs: 30,
+    upstreamOperationTimeoutMs: 500,
+  })
+  await relay.start()
+  t.after(() => relay.stop())
+  const relayUrl = `ws://127.0.0.1:${relay.address().port}/v1/realtime`
+  const scanner = await openClient(relayUrl, { v: 1, type: "auth", role: "scanner", deviceId: scannerId, apiKey: scannerKey, macAddress: scannerMac })
+  t.after(() => scanner.close())
+  const payload = { v: 1, type: "scan.submit", scanId: "d".repeat(24), decodedData: "https://dosw.iitr.ac.in/StudentProxy.aspx?id=4" }
+
+  const firstResult = waitForMessage(scanner, "scan.result")
+  scanner.send(JSON.stringify(payload))
+  await firstResult
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  const acknowledgement = waitForMessage(scanner, "scan.ack")
+  scanner.send(JSON.stringify(payload))
+
+  assert.equal((await acknowledgement).scanId, payload.scanId)
+  assert.equal(requests, 1)
+  assert.equal(maxConcurrent, 1)
+})
+
+test("starts a fresh upstream request after a completed transient failure", async (t) => {
+  let requests = 0
+  const upstream = createServer(async (request, response) => {
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    const body = JSON.parse(Buffer.concat(chunks).toString())
+    requests++
+    response.setHeader("content-type", "application/json")
+    if (requests === 1) {
+      response.writeHead(503).end(JSON.stringify({ success: false, error: "Temporary failure" }))
+      return
+    }
+    response.end(JSON.stringify({ success: true, scanId: body.scanId, entryState: "OUT", persistence: { status: "saved" } }))
+  })
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+  t.after(() => upstream.close())
+  const relay = createRelayServer({ upstreamBaseUrl: `http://127.0.0.1:${upstream.address().port}`, tokenSecret, port: 0, host: "127.0.0.1", skipScannerOnlineCheck: true, allowInsecureUpstream: true })
+  await relay.start()
+  t.after(() => relay.stop())
+  const scanner = await openClient(`ws://127.0.0.1:${relay.address().port}/v1/realtime`, { v: 1, type: "auth", role: "scanner", deviceId: scannerId, apiKey: scannerKey, macAddress: scannerMac })
+  t.after(() => scanner.close())
+  const payload = { v: 1, type: "scan.submit", scanId: "e".repeat(24), decodedData: "https://dosw.iitr.ac.in/StudentProxy.aspx?id=5" }
+
+  const failed = waitForMessage(scanner, "scan.result")
+  scanner.send(JSON.stringify(payload))
+  assert.equal((await failed).httpStatus, 503)
+  const acknowledgement = waitForMessage(scanner, "scan.ack")
+  scanner.send(JSON.stringify(payload))
+
+  assert.equal((await acknowledgement).scanId, payload.scanId)
+  assert.equal(requests, 2)
+})

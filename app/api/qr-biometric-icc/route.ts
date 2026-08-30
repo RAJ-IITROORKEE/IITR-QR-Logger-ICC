@@ -274,13 +274,22 @@ async function authenticateDevice(deviceId: string, apiKey: string | null): Prom
   if (!device || !verifyDeviceApiKey(apiKey, device.apiKeyHash)) return { ok: false, error: "Invalid device ID or API key" }
   if (!device.enabled || device.disabledAt || device.deviceKind !== "QR_SCANNER") return { ok: false, error: "Invalid device ID or API key" }
 
-  await prisma.device.update({ where: { id: device.id }, data: { apiKeyLastUsedAt: new Date() } })
   return { ok: true, error: null, device }
+}
+
+function scheduleApiKeyActivityUpdate(deviceId: string) {
+  after(async () => {
+    await prisma.device.update({ where: { id: deviceId }, data: { apiKeyLastUsedAt: new Date() } })
+      .catch((error) => console.error("[qr-biometric] API-key activity update failed", error))
+  })
 }
 
 async function saveDeviceMacRegistration(device: AuthenticatedDevice, rawMacAddress: string) {
   const result = resolveDeviceMacRegistration(device, rawMacAddress)
-  if (!result.ok) return result
+  if (!result.ok) {
+    scheduleApiKeyActivityUpdate(device.id)
+    return result
+  }
 
   if (result.status === "registered") {
     const existingDevice = await prisma.device.findFirst({
@@ -288,6 +297,7 @@ async function saveDeviceMacRegistration(device: AuthenticatedDevice, rawMacAddr
       select: { deviceNumber: true },
     })
     if (existingDevice) {
+      scheduleApiKeyActivityUpdate(device.id)
       return {
         ok: false as const,
         status: "conflict" as const,
@@ -298,7 +308,14 @@ async function saveDeviceMacRegistration(device: AuthenticatedDevice, rawMacAddr
     }
   }
 
-  await prisma.device.update({ where: { id: device.id }, data: result.updateData })
+  if (result.status === "registered") {
+    await prisma.device.update({ where: { id: device.id }, data: result.updateData })
+  } else {
+    after(async () => {
+      await prisma.device.update({ where: { id: device.id }, data: result.updateData })
+        .catch((error) => console.error("[qr-biometric] Device activity update failed", error))
+    })
+  }
   return result
 }
 
@@ -791,6 +808,9 @@ export async function POST(request: NextRequest) {
   }
   if (!auth.ok) {
     return NextResponse.json({ success: false, module: "qr-biometric-icc", error: auth.error }, { status: 401 })
+  }
+  if (!deviceMacAddress) {
+    scheduleApiKeyActivityUpdate(auth.device.id)
   }
 
   if (deviceOnlineEvent || (deviceMacAddress && !decodedData)) {

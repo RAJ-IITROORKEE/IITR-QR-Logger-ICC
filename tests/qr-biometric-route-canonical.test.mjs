@@ -31,18 +31,29 @@ function loadScannerRoute({
   previousReading = null,
   createdReading = storedReading(),
   knownIdentity = null,
+  macRegistrationResult = { ok: true, status: "verified", macAddress: "AA:BB:CC:DD:EE:FF", updateData: {} },
+  existingMacDevice = null,
 } = {}) {
   const source = readFileSync(ROUTE_PATH, "utf8")
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
   const results = [...canonicalResults]
-  const calls = { canonical: 0, identityLookup: 0, profileFetch: 0, readingCreate: 0, readingCreateData: null }
+  const deferred = []
+  const calls = {
+    canonical: 0,
+    deviceUpdate: 0,
+    identityLookup: 0,
+    profileFetch: 0,
+    readingCreate: 0,
+    readingCreateData: null,
+    runDeferred: async () => { for (const callback of deferred.splice(0)) await callback() },
+  }
   const moduleRequire = (specifier) => {
     if (specifier === "next/server") {
       return {
         NextResponse: { json: (body, init) => Response.json(body, init) },
-        after: () => {},
+        after: (callback) => deferred.push(callback),
       }
     }
     if (specifier === "@/lib/access-auth") {
@@ -65,7 +76,7 @@ function loadScannerRoute({
       }
     }
     if (specifier === "@/lib/device-mac-registration") {
-      return { resolveDeviceMacRegistration: () => ({ ok: true, status: "matched", macAddress: "AA:BB:CC:DD:EE:FF", updateData: {} }) }
+      return { resolveDeviceMacRegistration: () => macRegistrationResult }
     }
     if (specifier === "@/lib/device-api-key") return { verifyDeviceApiKey: () => true }
     if (specifier === "@/lib/qr-biometric-delivery") {
@@ -105,7 +116,7 @@ function loadScannerRoute({
     if (specifier === "@/lib/prisma") {
       return { prisma: {
         device: {
-          findFirst: async () => ({
+          findFirst: async (query) => query?.where?.macAddress ? existingMacDevice : ({
             id: "device-db-id",
             deviceNumber: "QRB-001",
             apiKeyHash: "hash",
@@ -115,7 +126,7 @@ function loadScannerRoute({
             enabled: true,
             disabledAt: null,
           }),
-          update: async () => ({}),
+          update: async () => { calls.deviceUpdate++; return {} },
         },
         qrBiometricDeletion: { findUnique: async () => null },
         studentIdentity: {
@@ -164,11 +175,11 @@ function loadScannerRoute({
   return { POST: cjsModule.exports.POST, calls }
 }
 
-function scanRequest(decodedData = DECODED_DATA) {
+function scanRequest(decodedData = DECODED_DATA, extra = {}) {
   return new Request("https://scanner.test/api/qr-biometric-icc", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ deviceId: "QRB-001", apiKey: "test-key", scanId: SCAN_ID, decodedData }),
+    body: JSON.stringify({ deviceId: "QRB-001", apiKey: "test-key", scanId: SCAN_ID, decodedData, ...extra }),
   })
 }
 
@@ -255,9 +266,39 @@ test("a canonical student identity supplies the profile before reading-history o
   assert.equal(calls.profileFetch, 0)
   assert.equal(calls.readingCreateData.studentInfo.enrollmentNo, "24115114")
   assert.equal(calls.readingCreateData.studentInfo.emailId, "ada@example.test")
+  assert.equal(calls.deviceUpdate, 0)
+  await calls.runDeferred()
+  assert.equal(calls.deviceUpdate, 1)
 })
 
 test("database readings override stale live-buffer copies after canonical reprojection", () => {
   const source = readFileSync(ROUTE_PATH, "utf8")
   assert.match(source, /for \(const reading of \[\.\.\.dbReadings, \.\.\.liveReadings\]\)/)
+})
+
+test("records valid API-key activity after rejecting a conflicting MAC", async () => {
+  const { POST, calls } = loadScannerRoute({
+    macRegistrationResult: { ok: false, status: "conflict", error: "MAC conflict", macAddress: "11:22:33:44:55:66" },
+  })
+
+  const response = await POST(scanRequest(DECODED_DATA, { macAddress: "11:22:33:44:55:66" }))
+
+  assert.equal(response.status, 409)
+  assert.equal(calls.deviceUpdate, 0)
+  await calls.runDeferred()
+  assert.equal(calls.deviceUpdate, 1)
+})
+
+test("records valid API-key activity when a new MAC is already owned by another device", async () => {
+  const { POST, calls } = loadScannerRoute({
+    macRegistrationResult: { ok: true, status: "registered", macAddress: "11:22:33:44:55:66", updateData: {} },
+    existingMacDevice: { deviceNumber: "QRB-999" },
+  })
+
+  const response = await POST(scanRequest(DECODED_DATA, { macAddress: "11:22:33:44:55:66" }))
+
+  assert.equal(response.status, 409)
+  assert.equal(calls.deviceUpdate, 0)
+  await calls.runDeferred()
+  assert.equal(calls.deviceUpdate, 1)
 })

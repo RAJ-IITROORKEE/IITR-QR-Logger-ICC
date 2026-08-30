@@ -121,7 +121,7 @@ unsigned long lastDecodedAt = 0;
 unsigned long lastScanTriggerAt = 0;
 unsigned long stableSince = 0;
 unsigned long lastMotionCheckAt = 0;
-const unsigned long DUPLICATE_SUPPRESS_MS = 3000;
+const unsigned long DUPLICATE_SUPPRESS_MS = 30000;
 const unsigned long SCAN_TRIGGER_INTERVAL_MS = 1600;
 const unsigned long QR_IDLE_AFTER_STABLE_MS = 10000;
 const unsigned long MOTION_CHECK_INTERVAL_MS = 200;
@@ -135,7 +135,6 @@ const unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 const unsigned long WIFI_RECONNECT_TIMEOUT_MS = 15000;
 const unsigned long WIFI_BADGE_REFRESH_MS = 1000;
 const unsigned long NTP_SYNC_TIMEOUT_MS = 10000;
-const unsigned long RELAY_ACK_TIMEOUT_MS = 3000;
 const unsigned long QR_FRAME_COLLECTION_MS = 450;
 const unsigned long QR_FRAME_POLL_MS = 5;
 const unsigned long QR_FRAME_QUIET_MS = 80;
@@ -729,6 +728,18 @@ void relayWebSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
     }
     relayAttemptFinished = true;
   } else if (messageType == "scan.result") {
+    int httpCode = document["httpStatus"] | 0;
+    bool retryable = document["retryable"] | true;
+    ServerReply reply;
+    bool parsed = populateServerReply(document["result"].as<JsonVariantConst>(), reply);
+    bool scanIdCollision = parsed && reply.error.indexOf("scanId") >= 0;
+    QrRelayResultDisposition disposition = qrRelayResultDisposition(
+        httpCode, retryable, parsed && reply.invalidQr, scanIdCollision);
+    relayAcknowledgedResult.httpCode = httpCode;
+    relayAcknowledgedResult.reply = reply;
+    relayAcknowledgedResult.outcome = disposition == QrRelayResultDisposition::INVALID
+        ? UPLOAD_INVALID
+        : disposition == QrRelayResultDisposition::BLOCKED ? UPLOAD_BLOCKED : UPLOAD_RETRY;
     relayAttemptFinished = true;
   }
 }
@@ -747,9 +758,13 @@ void configureRealtimeRelay() {
 }
 
 bool uploadScanViaRelay(const ScanJob& pending, UploadResult& result) {
-  QrRelayDecision decision = qrRelayDecision(relayConfigured, relayReady, false, false, 0, millis(), RELAY_ACK_TIMEOUT_MS);
+  QrRelayDecision decision = qrRelayDecision(relayConfigured, relayReady, false, false, 0, millis(), QR_RELAY_ACK_TIMEOUT_MS);
   if (decision != QrRelayDecision::RELAY_SEND) return false;
 
+  result = {};
+  result.outcome = UPLOAD_RETRY;
+  result.httpCode = 0;
+  relayAcknowledgedResult = result;
   relayAttemptFinished = false;
   relayAttemptAcknowledged = false;
   snprintf(relayAwaitingScanId, sizeof(relayAwaitingScanId), "%s", pending.scanId);
@@ -768,20 +783,26 @@ bool uploadScanViaRelay(const ScanJob& pending, UploadResult& result) {
   unsigned long sentAt = millis();
   while (true) {
     relaySocket.loop();
-    decision = qrRelayDecision(relayConfigured, relayReady, true, relayAttemptAcknowledged, sentAt, millis(), RELAY_ACK_TIMEOUT_MS);
+    decision = qrRelayDecision(relayConfigured, relayReady, true, relayAttemptAcknowledged, sentAt, millis(), QR_RELAY_ACK_TIMEOUT_MS);
     if (decision == QrRelayDecision::COMPLETE) {
       result = relayAcknowledgedResult;
       relayAwaitingScanId[0] = '\0';
       printLine("Realtime relay durable acknowledgement for " + String(pending.scanId));
       return true;
     }
-    if (relayAttemptFinished || decision == QrRelayDecision::HTTPS_FALLBACK) break;
+    if (relayAttemptFinished) {
+      result = relayAcknowledgedResult;
+      relayAwaitingScanId[0] = '\0';
+      printLine("Realtime relay completed without a durable acknowledgement; retaining scan");
+      return true;
+    }
+    if (decision == QrRelayDecision::RELAY_RETRY) {
+      relayAwaitingScanId[0] = '\0';
+      printLine("Realtime relay acknowledgement timed out; retaining scan");
+      return true;
+    }
     delay(5);
   }
-
-  relayAwaitingScanId[0] = '\0';
-  printLine("Realtime relay unavailable or unacknowledged; using HTTPS fallback");
-  return false;
 }
 
 UploadResult uploadScan(const ScanJob& pending) {
