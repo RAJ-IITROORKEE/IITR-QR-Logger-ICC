@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { QrEntryStateBadge, QrStudentAvatar, QrStudentSummary, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
+import { useQrRealtimeUpdates } from "@/hooks/use-qr-realtime-updates"
 import type { QrBiometricReading, QrEntryState } from "@/types/qr-biometric"
 
 interface QrApiResponse {
@@ -160,6 +161,7 @@ export function QrBiometricDashboard() {
   const refreshForChange = useEffectEvent(async () => {
     await fetchData()
   })
+  useQrRealtimeUpdates(fetchData)
 
   useEffect(() => {
     const initial = window.setTimeout(() => void fetchData(), 0)

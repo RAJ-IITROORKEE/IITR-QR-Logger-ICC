@@ -9,6 +9,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { QrDecodedPayloadLink, QrEntryStateBadge, QrScanDetailsDialog, QrStudentAvatar, QrStudentInfoPanel, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
+import { useQrRealtimeUpdates } from "@/hooks/use-qr-realtime-updates"
 import type { QrBiometricApiResponse, QrBiometricReading, QrBiometricStudentSummary } from "@/types/qr-biometric"
 
 type Mode = "dashboard" | "logs" | "analytics"
@@ -429,6 +430,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
   const refreshForChange = useEffectEvent(async () => {
     await fetchData()
   })
+  useQrRealtimeUpdates(fetchData)
 
   useEffect(() => {
     const initial = window.setTimeout(() => void fetchData(), 0)

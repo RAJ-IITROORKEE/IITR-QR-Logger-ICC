@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <WebSocketsClient.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -12,6 +13,7 @@
 #include <time.h>
 #include "secrets.h"
 #include "qr_scanner_policy.h"
+#include "qr_relay_policy.h"
 
 M5UnitQRCodeUART qrcode;
 
@@ -22,6 +24,14 @@ const char* DASHBOARD_URL = "https://iitrlogger.com";
 #define QR_DEVICE_ID "QRB-001"
 #endif
 const char* DEVICE_ID = QR_DEVICE_ID;
+#ifndef QR_RELAY_HOST
+#define QR_RELAY_HOST "qr-realtime-relay-556169679342.us-east4.run.app"
+#endif
+#ifndef QR_RELAY_PATH
+#define QR_RELAY_PATH "/v1/realtime"
+#endif
+const char* RELAY_HOST = QR_RELAY_HOST;
+const char* RELAY_PATH = QR_RELAY_PATH;
 
 static const char ISRG_ROOT_X1[] PROGMEM = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -54,6 +64,40 @@ oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
 4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
 mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
+
+static const char GTS_ROOT_R1[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFVzCCAz+gAwIBAgINAgPlk28xsBNJiGuiFzANBgkqhkiG9w0BAQwFADBHMQsw
+CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU
+MBIGA1UEAxMLR1RTIFJvb3QgUjEwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAw
+MDAwWjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZp
+Y2VzIExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjEwggIiMA0GCSqGSIb3DQEBAQUA
+A4ICDwAwggIKAoICAQC2EQKLHuOhd5s73L+UPreVp0A8of2C+X0yBoJx9vaMf/vo
+27xqLpeXo4xL+Sv2sfnOhB2x+cWX3u+58qPpvBKJXqeqUqv4IyfLpLGcY9vXmX7w
+Cl7raKb0xlpHDU0QM+NOsROjyBhsS+z8CZDfnWQpJSMHobTSPS5g4M/SCYe7zUjw
+TcLCeoiKu7rPWRnWr4+wB7CeMfGCwcDfLqZtbBkOtdh+JhpFAz2weaSUKK0Pfybl
+qAj+lug8aJRT7oM6iCsVlgmy4HqMLnXWnOunVmSPlk9orj2XwoSPwLxAwAtcvfaH
+szVsrBhQf4TgTM2S0yDpM7xSma8ytSmzJSq0SPly4cpk9+aCEI3oncKKiPo4Zor8
+Y/kB+Xj9e1x3+naH+uzfsQ55lVe0vSbv1gHR6xYKu44LtcXFilWr06zqkUspzBmk
+MiVOKvFlRNACzqrOSbTqn3yDsEB750Orp2yjj32JgfpMpf/VjsPOS+C12LOORc92
+wO1AK/1TD7Cn1TsNsYqiA94xrcx36m97PtbfkSIS5r762DL8EGMUUXLeXdYWk70p
+aDPvOmbsB4om3xPXV2V4J95eSRQAogB/mqghtqmxlbCluQ0WEdrHbEg8QOB+DVrN
+VjzRlwW5y0vtOUucxD/SVRNuJLDWcfr0wbrM7Rv1/oFB2ACYPTrIrnqYNxgFlQID
+AQABo0IwQDAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+FgQU5K8rJnEaK0gnhS9SZizv8IkTcT4wDQYJKoZIhvcNAQEMBQADggIBAJ+qQibb
+C5u+/x6Wki4+omVKapi6Ist9wTrYggoGxval3sBOh2Z5ofmmWJyq+bXmYOfg6LEe
+QkEzCzc9zolwFcq1JKjPa7XSQCGYzyI0zzvFIoTgxQ6KfF2I5DUkzps+GlQebtuy
+h6f88/qBVRRiClmpIgUxPoLW7ttXNLwzldMXG+gnoot7TiYaelpkttGsN/H9oPM4
+7HLwEXWdyzRSjeZ2axfG34arJ45JK3VmgRAhpuo+9K4l/3wV3s6MJT/KYnAK9y8J
+ZgfIPxz88NtFMN9iiMG1D53Dn0reWVlHxYciNuaCp+0KueIHoI17eko8cdLiA6Ef
+MgfdG+RCzgwARWGAtQsgWSl4vflVy2PFPEz0tv/bal8xa5meLMFrUKTX5hgUvYU/
+Z6tGn6D/Qqc6f1zLXbBwHSs09dR2CQzreExZBfMzQsNhFRAbd03OIozUhfJFfbdT
+6u9AWpQKXCBfTkBdYiJ23//OYb2MI3jSNwLgjt7RETeJ9r/tSQdirpLsQBqvFAnZ
+0E6yove+7u7Y/9waLd64NnHi/Hm3lCXRSHNboTXns5lndcEZOitHTtNCjv0xyBZm
+2tIMPNuzjsmhDYAPexZ3FL//2wmUspO8IFgV6dtxQ/PeEMMA3KgqlbbC1j+Qa3bb
+bP6MvPJwNQzcmRk13NfIRmPVNnGuV/u3gm3c
 -----END CERTIFICATE-----
 )EOF";
 
@@ -91,6 +135,7 @@ const unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 const unsigned long WIFI_RECONNECT_TIMEOUT_MS = 15000;
 const unsigned long WIFI_BADGE_REFRESH_MS = 1000;
 const unsigned long NTP_SYNC_TIMEOUT_MS = 10000;
+const unsigned long RELAY_ACK_TIMEOUT_MS = 3000;
 const unsigned long QR_FRAME_COLLECTION_MS = 450;
 const unsigned long QR_FRAME_POLL_MS = 5;
 const unsigned long QR_FRAME_QUIET_MS = 80;
@@ -109,6 +154,13 @@ volatile bool wifiRecovered = false;
 QueueHandle_t scanQueue = nullptr;
 QueueHandle_t uploadUiQueue = nullptr;
 TaskHandle_t uploadTaskHandle = nullptr;
+WebSocketsClient relaySocket;
+bool relayConfigured = false;
+bool relayConnected = false;
+bool relayReady = false;
+bool relayAttemptFinished = false;
+bool relayAttemptAcknowledged = false;
+char relayAwaitingScanId[25] = {};
 
 void notifyUploadWorker();
 
@@ -145,6 +197,8 @@ struct UploadResult {
   int httpCode;
   ServerReply reply;
 };
+
+UploadResult relayAcknowledgedResult;
 
 enum UploadUiEventType : uint8_t {
   UPLOAD_UI_ACKNOWLEDGED,
@@ -587,6 +641,25 @@ bool synchronizeClock() {
   return false;
 }
 
+bool populateServerReply(JsonVariantConst value, ServerReply& reply) {
+  if (!value.is<JsonObjectConst>()) return false;
+  JsonObjectConst document = value.as<JsonObjectConst>();
+  reply.success = document["success"].is<bool>() && document["success"].as<bool>();
+  reply.scanId = document["scanId"].as<String>();
+  reply.deviceId = document["deviceId"].as<String>();
+  reply.receivedDecodedData = document["received"]["decodedData"].as<String>();
+  reply.fullName = document["fullName"].as<String>();
+  reply.enrollmentNo = document["enrollmentNo"].as<String>();
+  reply.entryState = document["entryState"].as<String>();
+  reply.persistenceStatus = document["persistence"]["status"].as<String>();
+  String scanStatus = document["scanStatus"].as<String>();
+  String message = document["message"].as<String>();
+  String serverError = document["error"].as<String>();
+  reply.error = serverError;
+  reply.invalidQr = scanStatus == "invalid_qr" || message == "INVALID QR" || serverError.indexOf("Invalid QR") >= 0;
+  return true;
+}
+
 bool parseServerReply(const String& response, ServerReply& reply) {
   JsonDocument filter;
   filter["success"] = true;
@@ -604,21 +677,111 @@ bool parseServerReply(const String& response, ServerReply& reply) {
   JsonDocument document;
   DeserializationError error = deserializeJson(document, response, DeserializationOption::Filter(filter));
   if (error || !document.is<JsonObject>()) return false;
+  return populateServerReply(document.as<JsonVariantConst>(), reply);
+}
 
-  reply.success = document["success"].is<bool>() && document["success"].as<bool>();
-  reply.scanId = document["scanId"].as<String>();
-  reply.deviceId = document["deviceId"].as<String>();
-  reply.receivedDecodedData = document["received"]["decodedData"].as<String>();
-  reply.fullName = document["fullName"].as<String>();
-  reply.enrollmentNo = document["enrollmentNo"].as<String>();
-  reply.entryState = document["entryState"].as<String>();
-  reply.persistenceStatus = document["persistence"]["status"].as<String>();
-  String scanStatus = document["scanStatus"].as<String>();
-  String message = document["message"].as<String>();
-  String serverError = document["error"].as<String>();
-  reply.error = serverError;
-  reply.invalidQr = scanStatus == "invalid_qr" || message == "INVALID QR" || serverError.indexOf("Invalid QR") >= 0;
-  return true;
+void relayWebSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
+  if (type == WStype_DISCONNECTED) {
+    relayConnected = false;
+    relayReady = false;
+    return;
+  }
+
+  if (type == WStype_CONNECTED) {
+    relayConnected = true;
+    relayReady = false;
+    JsonDocument auth;
+    auth["v"] = 1;
+    auth["type"] = "auth";
+    auth["role"] = "scanner";
+    auth["deviceId"] = DEVICE_ID;
+    auth["apiKey"] = API_KEY;
+    auth["macAddress"] = WiFi.macAddress();
+    String message;
+    serializeJson(auth, message);
+    if (!relaySocket.sendTXT(message)) relaySocket.disconnect();
+    return;
+  }
+
+  if (type != WStype_TEXT || length == 0 || length > 16 * 1024) return;
+  JsonDocument document;
+  if (deserializeJson(document, payload, length) || document["v"] != 1) return;
+  String messageType = document["type"].as<String>();
+  if (messageType == "ready" && document["role"] == "scanner") {
+    relayReady = true;
+    printLine("Realtime relay ready");
+    notifyUploadWorker();
+    return;
+  }
+
+  String scanId = document["scanId"].as<String>();
+  if (scanId.length() == 0 || scanId != relayAwaitingScanId) return;
+  if (messageType == "scan.ack") {
+    ServerReply reply;
+    bool parsed = populateServerReply(document["result"].as<JsonVariantConst>(), reply);
+    int httpCode = document["httpStatus"] | 0;
+    bool exactAcknowledgement = parsed && httpCode >= 200 && httpCode < 300 && reply.success && reply.scanId == scanId && reply.persistenceStatus == "saved";
+    if (exactAcknowledgement) {
+      relayAcknowledgedResult.outcome = UPLOAD_ACKNOWLEDGED;
+      relayAcknowledgedResult.httpCode = httpCode;
+      relayAcknowledgedResult.reply = reply;
+      relayAttemptAcknowledged = true;
+    }
+    relayAttemptFinished = true;
+  } else if (messageType == "scan.result") {
+    relayAttemptFinished = true;
+  }
+}
+
+void configureRealtimeRelay() {
+  relayConfigured = strlen(RELAY_HOST) > 0 && RELAY_PATH[0] == '/';
+  if (!relayConfigured) {
+    printLine("Realtime relay not configured; HTTPS only");
+    return;
+  }
+  relaySocket.onEvent(relayWebSocketEvent);
+  relaySocket.setReconnectInterval(2000);
+  relaySocket.enableHeartbeat(15000, 5000, 3);
+  relaySocket.beginSslWithCA(RELAY_HOST, 443, RELAY_PATH, GTS_ROOT_R1);
+  printLine("Realtime relay configured: " + String(RELAY_HOST));
+}
+
+bool uploadScanViaRelay(const ScanJob& pending, UploadResult& result) {
+  QrRelayDecision decision = qrRelayDecision(relayConfigured, relayReady, false, false, 0, millis(), RELAY_ACK_TIMEOUT_MS);
+  if (decision != QrRelayDecision::RELAY_SEND) return false;
+
+  relayAttemptFinished = false;
+  relayAttemptAcknowledged = false;
+  snprintf(relayAwaitingScanId, sizeof(relayAwaitingScanId), "%s", pending.scanId);
+  JsonDocument document;
+  document["v"] = 1;
+  document["type"] = "scan.submit";
+  document["scanId"] = pending.scanId;
+  document["decodedData"] = pending.decodedData;
+  String payload;
+  serializeJson(document, payload);
+  if (!relaySocket.sendTXT(payload)) {
+    relayAwaitingScanId[0] = '\0';
+    return false;
+  }
+
+  unsigned long sentAt = millis();
+  while (true) {
+    relaySocket.loop();
+    decision = qrRelayDecision(relayConfigured, relayReady, true, relayAttemptAcknowledged, sentAt, millis(), RELAY_ACK_TIMEOUT_MS);
+    if (decision == QrRelayDecision::COMPLETE) {
+      result = relayAcknowledgedResult;
+      relayAwaitingScanId[0] = '\0';
+      printLine("Realtime relay durable acknowledgement for " + String(pending.scanId));
+      return true;
+    }
+    if (relayAttemptFinished || decision == QrRelayDecision::HTTPS_FALLBACK) break;
+    delay(5);
+  }
+
+  relayAwaitingScanId[0] = '\0';
+  printLine("Realtime relay unavailable or unacknowledged; using HTTPS fallback");
+  return false;
 }
 
 UploadResult uploadScan(const ScanJob& pending) {
@@ -730,7 +893,8 @@ void processPendingQueueOnce() {
     return;
   }
 
-  UploadResult result = uploadScan(pending);
+  UploadResult result;
+  if (!uploadScanViaRelay(pending, result)) result = uploadScan(pending);
   if (result.outcome == UPLOAD_ACKNOWLEDGED) {
     ScanJob removed = {};
     if (xQueueReceive(scanQueue, &removed, 0) != pdTRUE) {
@@ -772,8 +936,10 @@ void processPendingQueueOnce() {
 }
 
 void uploadWorkerTask(void*) {
+  configureRealtimeRelay();
   bool idleReported = false;
   while (true) {
+    if (relayConfigured && WiFi.status() == WL_CONNECTED) relaySocket.loop();
     if (wifiRecovered) {
       wifiRecovered = false;
       nextUploadAttemptAt = 0;
@@ -786,7 +952,7 @@ void uploadWorkerTask(void*) {
         printQueueCounts("drained; uploader idle");
         idleReported = true;
       }
-      ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      ulTaskNotifyTake(pdTRUE, relayConfigured ? pdMS_TO_TICKS(20) : portMAX_DELAY);
       uploadRetryMs = INITIAL_RETRY_MS;
       nextUploadAttemptAt = 0;
       continue;
@@ -795,7 +961,8 @@ void uploadWorkerTask(void*) {
 
     long waitMs = static_cast<long>(nextUploadAttemptAt - millis());
     if (waitMs > 0) {
-      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(min(waitMs, 1000L)));
+      long maximumWait = relayConfigured ? 20L : 1000L;
+      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(min(waitMs, maximumWait)));
       continue;
     }
     processPendingQueueOnce();
