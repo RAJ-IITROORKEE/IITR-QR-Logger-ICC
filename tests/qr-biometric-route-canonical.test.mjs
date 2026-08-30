@@ -276,6 +276,11 @@ test("database readings override stale live-buffer copies after canonical reproj
   assert.match(source, /for \(const reading of \[\.\.\.dbReadings, \.\.\.liveReadings\]\)/)
 })
 
+test("runs QR ingestion next to the Mumbai attendance database", () => {
+  const config = JSON.parse(readFileSync("./vercel.json", "utf8"))
+  assert.deepEqual(config.regions, ["bom1"])
+})
+
 test("records valid API-key activity after rejecting a conflicting MAC", async () => {
   const { POST, calls } = loadScannerRoute({
     macRegistrationResult: { ok: false, status: "conflict", error: "MAC conflict", macAddress: "11:22:33:44:55:66" },
