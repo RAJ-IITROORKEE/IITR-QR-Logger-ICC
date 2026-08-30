@@ -25,7 +25,7 @@ const char* DASHBOARD_URL = "https://iitrlogger.com";
 #endif
 const char* DEVICE_ID = QR_DEVICE_ID;
 #ifndef QR_RELAY_HOST
-#define QR_RELAY_HOST "qr-realtime-relay-556169679342.us-east4.run.app"
+#define QR_RELAY_HOST "qr-realtime-relay-rpei5anbuq-uk.a.run.app"
 #endif
 #ifndef QR_RELAY_PATH
 #define QR_RELAY_PATH "/v1/realtime"
