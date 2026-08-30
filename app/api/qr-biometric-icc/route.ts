@@ -186,6 +186,29 @@ async function fetchStudentInfo(decodedData: string): Promise<StudentProfileFetc
 
 async function reuseStoredStudentInfo(decodedData: string, profile: StudentProfileFetch): Promise<StudentProfileFetch> {
   try {
+    const normalizedUrl = normalizeDecodedUrl(decodedData)
+    const storedIdentity = !profile.info && normalizedUrl ? await prisma.studentIdentity.findUnique({
+      where: { doswUrl: normalizedUrl },
+      select: { enrollmentNo: true, fullName: true, profile: true, studentPhotoUrl: true },
+    }) : null
+    if (storedIdentity) {
+      const identityInfo = normalizeStudentInfo(storedIdentity.profile) ?? {}
+      const storedInfo = normalizeStudentInfo({
+        ...identityInfo,
+        enrollmentNo: storedIdentity.enrollmentNo,
+        ...(storedIdentity.fullName ? { fullName: storedIdentity.fullName } : {}),
+      })
+      if (storedInfo?.enrollmentNo) {
+        return {
+          ...profile,
+          status: "scraped",
+          info: storedInfo,
+          error: null,
+          studentPhotoUrl: isStoredStudentPhotoUrl(storedIdentity.studentPhotoUrl) ? storedIdentity.studentPhotoUrl : undefined,
+        }
+      }
+    }
+
     const [storedProfile, storedPhoto] = await Promise.all([
       profile.info ? null : prisma.qrBiometricReading.findFirst({
         where: { decodedData, studentInfoStatus: "scraped" },

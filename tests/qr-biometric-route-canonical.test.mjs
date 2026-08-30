@@ -30,13 +30,14 @@ function loadScannerRoute({
   reading = storedReading(),
   previousReading = null,
   createdReading = storedReading(),
+  knownIdentity = null,
 } = {}) {
   const source = readFileSync(ROUTE_PATH, "utf8")
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
   const results = [...canonicalResults]
-  const calls = { canonical: 0, profileFetch: 0, readingCreate: 0, readingCreateData: null }
+  const calls = { canonical: 0, identityLookup: 0, profileFetch: 0, readingCreate: 0, readingCreateData: null }
   const moduleRequire = (specifier) => {
     if (specifier === "next/server") {
       return {
@@ -117,6 +118,12 @@ function loadScannerRoute({
           update: async () => ({}),
         },
         qrBiometricDeletion: { findUnique: async () => null },
+        studentIdentity: {
+          findUnique: async () => {
+            calls.identityLookup++
+            return knownIdentity
+          },
+        },
         qrBiometricReading: {
           findUnique: async () => reading,
           findFirst: async (query) => {
@@ -229,6 +236,25 @@ test("a fresh known-student scan bypasses the external DOSW profile request", as
   assert.equal(calls.readingCreate, 1)
   assert.equal(calls.readingCreateData.studentInfo.enrollmentNo, "24115114")
   assert.equal(calls.readingCreateData.studentInfoStatus, "scraped")
+})
+
+test("a canonical student identity supplies the profile before reading-history or DOSW lookup", async () => {
+  const knownIdentity = {
+    enrollmentNo: "24115114",
+    fullName: "Ada Student",
+    profile: { emailId: "ada@example.test", bhawan: "Kasturba Bhawan" },
+    studentPhotoUrl: "https://blob.example.test/student.jpg",
+  }
+  const { POST, calls } = loadScannerRoute({ reading: null, knownIdentity })
+
+  const response = await POST(scanRequest())
+
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).fullName, "Ada Student")
+  assert.equal(calls.identityLookup, 1)
+  assert.equal(calls.profileFetch, 0)
+  assert.equal(calls.readingCreateData.studentInfo.enrollmentNo, "24115114")
+  assert.equal(calls.readingCreateData.studentInfo.emailId, "ada@example.test")
 })
 
 test("database readings override stale live-buffer copies after canonical reprojection", () => {
