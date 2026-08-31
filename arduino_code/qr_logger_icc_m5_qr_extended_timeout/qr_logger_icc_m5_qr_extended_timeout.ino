@@ -11,9 +11,14 @@
 #include <freertos/task.h>
 #include <math.h>
 #include <time.h>
+#if defined(QRB001_BUILD)
+#include "secrets_qrb001.h"
+#else
 #include "secrets.h"
+#endif
 #include "qr_scanner_policy.h"
 #include "qr_relay_policy.h"
+#include "qr_wifi_policy.h"
 
 M5UnitQRCodeUART qrcode;
 
@@ -602,8 +607,14 @@ void maintainWiFiConnection() {
   if (wifiPreviouslyConnected) printLine("WiFi connection lost; background reconnect enabled");
   wifiPreviouslyConnected = false;
 
-  if (wifiReconnectInProgress) {
-    if (now - wifiReconnectStartedAt < WIFI_RECONNECT_TIMEOUT_MS) return;
+  QrWifiReconnectAction action = qrWifiReconnectAction(
+      connected,
+      wifiReconnectInProgress,
+      now,
+      wifiReconnectStartedAt,
+      nextWifiReconnectAt,
+      WIFI_RECONNECT_TIMEOUT_MS);
+  if (action == QrWifiReconnectAction::ABORT_STALLED_ATTEMPT) {
     wifiReconnectInProgress = false;
     WiFi.disconnect(false, false);
     nextWifiReconnectAt = now + WIFI_RECONNECT_INTERVAL_MS;
@@ -611,11 +622,7 @@ void maintainWiFiConnection() {
     return;
   }
 
-  // Do not restart an association/DHCP attempt that the WiFi stack owns.
-  if (currentState == WL_IDLE_STATUS) return;
-
-  if (nextWifiReconnectAt != 0 && static_cast<long>(now - nextWifiReconnectAt) < 0) return;
-  startWiFiConnection();
+  if (action == QrWifiReconnectAction::START_ATTEMPT) startWiFiConnection();
 }
 
 bool synchronizeClock() {
@@ -757,7 +764,14 @@ void configureRealtimeRelay() {
   printLine("Realtime relay configured: " + String(RELAY_HOST));
 }
 
-bool uploadScanViaRelay(const ScanJob& pending, UploadResult& result) {
+void restartRealtimeRelay() {
+  if (!relayConfigured) return;
+  relayConnected = false;
+  relayReady = false;
+  relaySocket.beginSslWithCA(RELAY_HOST, 443, RELAY_PATH, GTS_ROOT_R1);
+}
+
+bool uploadScanViaRelay(const ScanJob& pending, UploadResult& result, bool& relayWifiAvailable) {
   QrRelayDecision decision = qrRelayDecision(relayConfigured, relayReady, false, false, 0, millis(), QR_RELAY_ACK_TIMEOUT_MS);
   if (decision != QrRelayDecision::RELAY_SEND) return false;
 
@@ -782,6 +796,15 @@ bool uploadScanViaRelay(const ScanJob& pending, UploadResult& result) {
 
   unsigned long sentAt = millis();
   while (true) {
+    if (WiFi.status() != WL_CONNECTED) {
+      relayWifiAvailable = false;
+      relaySocket.disconnect();
+      relayConnected = false;
+      relayReady = false;
+      relayAwaitingScanId[0] = '\0';
+      printLine("WiFi lost during relay wait; retaining scan");
+      return true;
+    }
     relaySocket.loop();
     decision = qrRelayDecision(relayConfigured, relayReady, true, relayAttemptAcknowledged, sentAt, millis(), QR_RELAY_ACK_TIMEOUT_MS);
     if (decision == QrRelayDecision::COMPLETE) {
@@ -897,7 +920,7 @@ void publishUploadUiEvent(UploadUiEventType type, int httpCode, const ScanJob* p
   xQueueSend(uploadUiQueue, &event, portMAX_DELAY);
 }
 
-void processPendingQueueOnce() {
+void processPendingQueueOnce(bool& relayWifiAvailable) {
   if (scanQueue == nullptr || pendingScanCount() == 0) return;
 
   ScanJob pending = {};
@@ -915,7 +938,7 @@ void processPendingQueueOnce() {
   }
 
   UploadResult result;
-  if (!uploadScanViaRelay(pending, result)) result = uploadScan(pending);
+  if (!uploadScanViaRelay(pending, result, relayWifiAvailable)) result = uploadScan(pending);
   if (result.outcome == UPLOAD_ACKNOWLEDGED) {
     ScanJob removed = {};
     if (xQueueReceive(scanQueue, &removed, 0) != pdTRUE) {
@@ -959,8 +982,24 @@ void processPendingQueueOnce() {
 void uploadWorkerTask(void*) {
   configureRealtimeRelay();
   bool idleReported = false;
+  bool relayWifiAvailable = WiFi.status() == WL_CONNECTED;
   while (true) {
-    if (relayConfigured && WiFi.status() == WL_CONNECTED) relaySocket.loop();
+    bool wifiConnected = WiFi.status() == WL_CONNECTED;
+    if (relayConfigured) {
+      if (!wifiConnected && relayWifiAvailable) {
+        relayWifiAvailable = false;
+        relaySocket.disconnect();
+        relayConnected = false;
+        relayReady = false;
+        printLine("WiFi lost: realtime relay transport reset");
+      } else if (wifiConnected && !relayWifiAvailable) {
+        relayWifiAvailable = true;
+        restartRealtimeRelay();
+        printLine("WiFi restored: restarting realtime relay transport");
+      }
+
+      if (wifiConnected) relaySocket.loop();
+    }
     if (wifiRecovered) {
       wifiRecovered = false;
       nextUploadAttemptAt = 0;
@@ -986,7 +1025,7 @@ void uploadWorkerTask(void*) {
       ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(min(waitMs, maximumWait)));
       continue;
     }
-    processPendingQueueOnce();
+    processPendingQueueOnce(relayWifiAvailable);
   }
 }
 

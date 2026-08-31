@@ -22,6 +22,7 @@
 
 # local hardware credentials
 arduino_code/**/secrets.h
+arduino_code/**/secrets_*.h
 arduino_code/**/qr-logger-icc-old.ino
 
 # misc
