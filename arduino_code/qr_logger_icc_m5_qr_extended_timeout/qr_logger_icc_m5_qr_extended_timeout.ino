@@ -11,8 +11,13 @@
 #include <freertos/task.h>
 #include <math.h>
 #include <time.h>
+#if defined(QRB001_BUILD) && defined(QRB202_BUILD)
+#error "Select only one scanner credential build"
+#endif
 #if defined(QRB001_BUILD)
 #include "secrets_qrb001.h"
+#elif defined(QRB202_BUILD)
+#include "secrets_qrb202.h"
 #else
 #include "secrets.h"
 #endif
