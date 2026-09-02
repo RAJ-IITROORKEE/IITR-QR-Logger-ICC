@@ -3,6 +3,7 @@ import { createRelayServer } from "./server.mjs"
 const relay = createRelayServer({
   upstreamBaseUrl: process.env.UPSTREAM_BASE_URL ?? "https://iitrlogger.com",
   tokenSecret: process.env.RELAY_TOKEN_SECRET ?? "",
+  publishSecret: process.env.RELAY_PUBLISH_SECRET ?? "",
   port: Number.parseInt(process.env.PORT ?? "8080", 10),
 })
 

@@ -19,7 +19,7 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
   const conflict = class AttendanceEventConflictError extends Error {}
   const moduleRequire = (specifier) => {
     if (specifier === "node:crypto") return { createHash }
-    if (specifier === "next/server") return { NextResponse: { json: (body, init) => Response.json(body, init) } }
+    if (specifier === "next/server") return { after: () => {}, NextResponse: { json: (body, init) => Response.json(body, init) } }
     if (specifier === "@/lib/attendance-device-auth") return { authenticateAttendanceDevice: async () => auth }
     if (specifier === "@/lib/attendance-ledger") return {
       AttendanceEventConflictError: conflict,
@@ -44,6 +44,7 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
         },
       },
     }
+    if (specifier === "@/lib/realtime-relay-publisher") return { publishRealtimeAttendanceHint: async () => {} }
     throw new Error(`Unexpected module: ${specifier}`)
   }
   const module = { exports: {} }

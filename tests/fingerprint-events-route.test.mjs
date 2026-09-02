@@ -12,7 +12,7 @@ function loadRoute() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
   const moduleRequire = (specifier) => {
-    if (specifier === "next/server") return { NextResponse: { json: (body, init) => Response.json(body, init) } }
+    if (specifier === "next/server") return { after: () => {}, NextResponse: { json: (body, init) => Response.json(body, init) } }
     if (specifier === "@/lib/attendance-device-auth") return { authenticateAttendanceDevice: async () => ({ ok: true, device: { deviceId: "TAB5-001" } }) }
     if (specifier === "@/lib/fingerprint-device-contract") return {
       ATTENDANCE_BATCH_MAX_BYTES: 32 * 1024,
@@ -22,6 +22,8 @@ function loadRoute() {
       AttendanceEventConflictError: class AttendanceEventConflictError extends Error {},
       recordFingerprintAttendanceBatch: async () => [{ eventId: "event-1", status: "PENDING_FINGERPRINT_MAPPING", replayed: false }],
     }
+    if (specifier === "@/lib/prisma") return { prisma: { attendanceFeedCounter: { findUnique: async () => null } } }
+    if (specifier === "@/lib/realtime-relay-publisher") return { publishRealtimeAttendanceHint: async () => {} }
     throw new Error(`Unexpected module: ${specifier}`)
   }
   const cjsModule = { exports: {} }

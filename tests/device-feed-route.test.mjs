@@ -175,6 +175,44 @@ test("does not duplicate the authoritative snapshot when it is already in the pa
   assert.deepEqual(body.changes.map((item) => item.sequence), ["9"])
 })
 
+test("an initial reset returns the latest LATEST_SNAPSHOT instead of a newer global change", async () => {
+  const authoritative = change(8, "LATEST_SNAPSHOT", { event: { eventId: "qr-latest" } })
+  const correction = change(9, "PROJECTION_CORRECTED", { privateReason: "not display state" })
+  const { GET, calls } = loadFeedRoute({ currentSequence: 9n, latestSnapshot: authoritative, latestGlobalChange: correction })
+
+  const response = await GET(request("cursor-12"))
+
+  await assertPrivateResponse(response)
+  const body = await response.json()
+  assert.equal(body.reset, true)
+  assert.equal(body.cursor, "cursor-9")
+  assert.deepEqual(body.changes.map(({ sequence, kind }) => ({ sequence, kind })), [
+    { sequence: "8", kind: "LATEST_SNAPSHOT" },
+  ])
+  assert.equal(calls.findFirst.some((query) => query.where?.kind === "LATEST_SNAPSHOT"), true)
+})
+
+test("a retention-gap reset returns the latest LATEST_SNAPSHOT instead of a newer global change", async () => {
+  const authoritative = change(18, "LATEST_SNAPSHOT", { event: { eventId: "manual-latest" } })
+  const correction = change(19, "PROJECTION_CORRECTED", { privateReason: "not display state" })
+  const { GET } = loadFeedRoute({
+    currentSequence: 20n,
+    oldestRelevant: { sequence: 10n },
+    latestSnapshot: authoritative,
+    latestGlobalChange: correction,
+  })
+
+  const response = await GET(request("cursor-2"))
+
+  await assertPrivateResponse(response)
+  const body = await response.json()
+  assert.equal(body.reset, true)
+  assert.equal(body.cursor, "cursor-20")
+  assert.deepEqual(body.changes.map(({ sequence, kind }) => ({ sequence, kind })), [
+    { sequence: "18", kind: "LATEST_SNAPSHOT" },
+  ])
+})
+
 test("authenticates before accessing feed state", async () => {
   const { GET, calls } = loadFeedRoute({ authResult: { ok: false, status: 401, error: "Invalid device credentials" } })
 

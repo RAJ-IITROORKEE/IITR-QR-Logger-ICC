@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 
 import { ATTENDANCE_BATCH_MAX_BYTES, parseManualAttendanceBatch } from "@/lib/attendance-device-contract"
 import { authenticateAttendanceDevice } from "@/lib/attendance-device-auth"
 import { AttendanceEventConflictError, recordManualAttendanceBatch } from "@/lib/attendance-ledger"
+import { prisma } from "@/lib/prisma"
+import { publishRealtimeAttendanceHint } from "@/lib/realtime-relay-publisher"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -38,6 +40,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const results = await recordManualAttendanceBatch(auth.device, parsed.value)
+    after(async () => {
+      try {
+        const counter = await prisma.attendanceFeedCounter.findUnique({ where: { id: "attendance" } })
+        if (counter) await publishRealtimeAttendanceHint(counter.value, new Date())
+      } catch (error) {
+        console.error("[device-api] Realtime attendance hint failed", error)
+      }
+    })
     return NextResponse.json({
       success: true,
       schemaVersion: 1,

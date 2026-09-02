@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto"
 
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 
 import { authenticateAttendanceDevice } from "@/lib/attendance-device-auth"
 import { AttendanceEventConflictError, recordCanonicalQrAttendance } from "@/lib/attendance-ledger"
 import { isDoswStudentUrl, extractStudentInfo, normalizeDecodedUrl } from "@/lib/qr-biometric-student"
 import { prisma } from "@/lib/prisma"
+import { publishRealtimeAttendanceHint } from "@/lib/realtime-relay-publisher"
 import type { QrStudentInfo } from "@/types/qr-biometric"
 
 export const dynamic = "force-dynamic"
@@ -145,6 +146,15 @@ export async function POST(request: NextRequest) {
       studentInfo,
       studentPhotoUrl: existing?.studentPhotoUrl ?? null,
     }, { eventId: `qr:${readingId}`, sourceType: "QR", intent: "QR_TOGGLE" })
+
+    after(async () => {
+      try {
+        const counter = await prisma.attendanceFeedCounter.findUnique({ where: { id: "attendance" } })
+        if (counter) await publishRealtimeAttendanceHint(counter.value, new Date())
+      } catch (error) {
+        console.error("[device-api] Realtime attendance hint failed", error)
+      }
+    })
 
     return json({
       success: true,

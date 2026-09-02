@@ -56,17 +56,13 @@ export async function GET(request: NextRequest) {
     const counter = await prisma.attendanceFeedCounter.findUnique({ where: { id: "attendance" } })
     const currentSequence = counter?.value ?? BigInt(0)
     const audience = { OR: [{ audienceDeviceId: null }, { audienceDeviceId: auth.device.deviceId }] }
-    const latestGlobal = () => prisma.attendanceChange.findFirst({
-      where: { audienceDeviceId: null },
-      orderBy: { sequence: "desc" },
-    })
     const latestGlobalSnapshot = () => prisma.attendanceChange.findFirst({
       where: { audienceDeviceId: null, kind: "LATEST_SNAPSHOT" },
       orderBy: { sequence: "desc" },
     })
 
     if (cursor === null || cursor > currentSequence) {
-      const snapshot = await latestGlobal()
+      const snapshot = await latestGlobalSnapshot()
       const resetSequence = advanceAttendanceCursor(currentSequence, snapshot ? [snapshot.sequence] : [])
       return json({
         success: true,
@@ -82,7 +78,7 @@ export async function GET(request: NextRequest) {
 
     const oldestRelevant = await prisma.attendanceChange.findFirst({ where: audience, orderBy: { sequence: "asc" }, select: { sequence: true } })
     if (oldestRelevant && cursor + BigInt(1) < oldestRelevant.sequence) {
-      const snapshot = await latestGlobal()
+      const snapshot = await latestGlobalSnapshot()
       const resetSequence = advanceAttendanceCursor(currentSequence, snapshot ? [snapshot.sequence] : [])
       return json({
         success: true,

@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 
 import { authenticateAttendanceDevice } from "@/lib/attendance-device-auth"
 import { AttendanceEventConflictError, recordFingerprintAttendanceBatch } from "@/lib/attendance-ledger"
 import { FINGERPRINT_BATCH_MAX_BYTES, parseFingerprintEventBatch } from "@/lib/fingerprint-device-contract"
+import { prisma } from "@/lib/prisma"
+import { publishRealtimeAttendanceHint } from "@/lib/realtime-relay-publisher"
 
 export const dynamic = "force-dynamic"
 export const revalidate = 0
@@ -48,6 +50,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const results = await recordFingerprintAttendanceBatch(auth.device, parsed.value)
+    after(async () => {
+      try {
+        const counter = await prisma.attendanceFeedCounter.findUnique({ where: { id: "attendance" } })
+        if (counter) await publishRealtimeAttendanceHint(counter.value, new Date())
+      } catch (error) {
+        console.error("[device-api] Realtime attendance hint failed", error)
+      }
+    })
     return json({
       success: true,
       schemaVersion: 1,

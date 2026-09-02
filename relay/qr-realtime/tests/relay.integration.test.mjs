@@ -9,6 +9,7 @@ const scannerKey = `qlicc_${"a".repeat(43)}`
 const scannerId = "QRB-201"
 const scannerMac = "98:88:E0:0E:DD:50"
 const tokenSecret = "s".repeat(64)
+const publishSecret = "p".repeat(64)
 
 function waitForMessage(socket, type) {
   return new Promise((resolve, reject) => {
@@ -41,6 +42,103 @@ function audienceToken(role = "dashboard") {
 }
 
 const requireCrypto = await import("node:crypto")
+
+async function startPublishRelay(t) {
+  const relay = createRelayServer({
+    upstreamBaseUrl: "http://127.0.0.1",
+    tokenSecret,
+    publishSecret,
+    port: 0,
+    host: "127.0.0.1",
+    allowInsecureUpstream: true,
+  })
+  await relay.start()
+  t.after(() => relay.stop())
+  const baseUrl = `http://127.0.0.1:${relay.address().port}`
+  return { baseUrl, relayUrl: `${baseUrl.replace("http:", "ws:")}/v1/realtime` }
+}
+
+function publish(baseUrl, body, secret = publishSecret, headers = {}) {
+  return fetch(`${baseUrl}/v1/publish`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  })
+}
+
+test("authenticates internal publishes and broadcasts only safe attendance metadata to both audiences", async (t) => {
+  const { baseUrl, relayUrl } = await startPublishRelay(t)
+  const dashboard = await openClient(relayUrl, { v: 1, type: "auth", role: "dashboard", token: audienceToken("dashboard") })
+  const display = await openClient(relayUrl, { v: 1, type: "auth", role: "display", token: audienceToken("display") })
+  t.after(() => { dashboard.close(); display.close() })
+  const dashboardChanged = waitForMessage(dashboard, "attendance.changed")
+  const displayChanged = waitForMessage(display, "attendance.changed")
+  const payload = { sequence: "42", changedAt: "2026-08-05T12:00:00.000Z" }
+
+  const response = await publish(baseUrl, payload)
+
+  assert.equal(response.status, 202)
+  assert.deepEqual(await response.json(), { success: true, duplicate: false })
+  for (const message of [await dashboardChanged, await displayChanged]) {
+    assert.deepEqual(message, { v: 1, type: "attendance.changed", ...payload })
+  }
+})
+
+test("rejects missing and wrong internal publish secrets without broadcasting", async (t) => {
+  const { baseUrl, relayUrl } = await startPublishRelay(t)
+  const dashboard = await openClient(relayUrl, { v: 1, type: "auth", role: "dashboard", token: audienceToken() })
+  t.after(() => dashboard.close())
+  let broadcasts = 0
+  dashboard.on("message", (data) => { if (JSON.parse(data.toString()).type === "attendance.changed") broadcasts++ })
+  const body = { sequence: "43", changedAt: "2026-08-05T12:00:01.000Z" }
+
+  const missing = await fetch(`${baseUrl}/v1/publish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+  const wrong = await publish(baseUrl, body, tokenSecret)
+
+  assert.equal(missing.status, 401)
+  assert.equal(wrong.status, 401)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(broadcasts, 0)
+})
+
+test("rejects oversized, malformed, and private publish fields", async (t) => {
+  const { baseUrl } = await startPublishRelay(t)
+  const valid = { sequence: "44", changedAt: "2026-08-05T12:00:02.000Z" }
+  const cases = [
+    [JSON.stringify(valid) + " ".repeat(2_000), 413],
+    ["{", 400],
+    [{ ...valid, student: { name: "Private Student" } }, 400],
+    [{ ...valid, scanId: "a".repeat(24) }, 400],
+    [{ ...valid, sequence: 44 }, 400],
+    [{ ...valid, changedAt: "yesterday" }, 400],
+  ]
+
+  for (const [body, status] of cases) {
+    const response = await publish(baseUrl, body)
+    assert.equal(response.status, status)
+  }
+})
+
+test("accepts duplicate publish sequences without rebroadcasting", async (t) => {
+  const { baseUrl, relayUrl } = await startPublishRelay(t)
+  const display = await openClient(relayUrl, { v: 1, type: "auth", role: "display", token: audienceToken("display") })
+  t.after(() => display.close())
+  let broadcasts = 0
+  display.on("message", (data) => { if (JSON.parse(data.toString()).type === "attendance.changed") broadcasts++ })
+  const body = { sequence: "45", changedAt: "2026-08-05T12:00:03.000Z" }
+
+  assert.equal((await publish(baseUrl, body)).status, 202)
+  const duplicate = await publish(baseUrl, body)
+
+  assert.equal(duplicate.status, 202)
+  assert.deepEqual(await duplicate.json(), { success: true, duplicate: true })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(broadcasts, 1)
+})
 
 test("ACKs and broadcasts only after the upstream API durably saves the same scanId", async (t) => {
   const upstreamRequests = []
@@ -97,7 +195,7 @@ test("does not broadcast or manufacture an ACK for an incomplete upstream respon
   const result = waitForMessage(scanner, "scan.result")
   scanner.send(JSON.stringify({ v: 1, type: "scan.submit", scanId: "b".repeat(24), decodedData: "https://dosw.iitr.ac.in/StudentProxy.aspx?id=2" }))
   assert.equal((await result).retryable, true)
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await new Promise((resolve) => setTimeout(resolve, 150))
   assert.equal(broadcast, false)
 })
 

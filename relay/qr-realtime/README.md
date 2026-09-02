@@ -14,6 +14,7 @@ Cloud Run WebSocket accelerator for QR attendance. MongoDB and the existing HTTP
 
 - `UPSTREAM_BASE_URL`: authoritative HTTPS application origin.
 - `RELAY_TOKEN_SECRET`: at least 32 bytes, supplied from Secret Manager.
+- `RELAY_PUBLISH_SECRET`: at least 32 bytes, used only by the authoritative application for post-commit hints.
 - `PORT`: injected by Cloud Run.
 
 Endpoints:
@@ -21,5 +22,6 @@ Endpoints:
 - `GET /health`
 - `GET /metrics`
 - `WSS /v1/realtime`
+- `POST /v1/publish` (application-secret authenticated; metadata only)
 
 Run locally with `npm install`, `npm test`, then `npm start` with the required environment variables.

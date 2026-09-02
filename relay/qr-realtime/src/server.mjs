@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 import { WebSocket, WebSocketServer } from "ws"
 
@@ -19,11 +19,57 @@ const HEARTBEAT_MS = 15_000
 const MAX_BUFFERED_BYTES = 256 * 1024
 const RATE_WINDOW_MS = 1_000
 const MAX_SCANS_PER_WINDOW = 5
+const MAX_PUBLISH_BODY_BYTES = 1024
+const MAX_RECENT_PUBLISHES = 1024
 
 function send(socket, message) {
   if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > MAX_BUFFERED_BYTES) return false
   socket.send(JSON.stringify({ v: PROTOCOL_VERSION, ...message }))
   return true
+}
+
+function validPublishSecret(authorization, secret) {
+  const presented = typeof authorization === "string" && authorization.startsWith("Bearer ")
+    ? authorization.slice(7)
+    : ""
+  const actual = createHash("sha256").update(presented).digest()
+  const expected = createHash("sha256").update(secret).digest()
+  return Buffer.byteLength(secret) >= 32 && timingSafeEqual(actual, expected)
+}
+
+async function readPublishBody(request) {
+  const declaredLength = Number.parseInt(request.headers["content-length"] ?? "0", 10)
+  if (declaredLength > MAX_PUBLISH_BODY_BYTES) return { tooLarge: true }
+  const chunks = []
+  let length = 0
+  for await (const chunk of request) {
+    length += chunk.length
+    if (length > MAX_PUBLISH_BODY_BYTES) return { tooLarge: true }
+    chunks.push(chunk)
+  }
+  try {
+    return { value: JSON.parse(Buffer.concat(chunks).toString("utf8")) }
+  } catch {
+    return { invalid: true }
+  }
+}
+
+function validPublishPayload(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  const keys = Object.keys(value).sort()
+  if (keys.length !== 2 || keys[0] !== "changedAt" || keys[1] !== "sequence") return false
+  if (typeof value.sequence !== "string" || !/^[1-9][0-9]{0,19}$/.test(value.sequence)) return false
+  if (typeof value.changedAt !== "string" || value.changedAt.length > 30) return false
+  try {
+    return new Date(value.changedAt).toISOString() === value.changedAt
+  } catch {
+    return false
+  }
+}
+
+function jsonHttpResponse(response, status, body) {
+  response.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" })
+  response.end(JSON.stringify(body))
 }
 
 async function jsonResponse(response) {
@@ -68,6 +114,7 @@ function waitForOperation(operation, timeoutMs) {
 export function createRelayServer({
   upstreamBaseUrl,
   tokenSecret,
+  publishSecret = "",
   port = 8080,
   host = "0.0.0.0",
   skipScannerOnlineCheck = false,
@@ -102,9 +149,10 @@ export function createRelayServer({
   const audiences = new Set()
   const scanners = new Map()
   const scanOperations = new Map()
+  const recentPublishes = new Set()
   const states = new WeakMap()
 
-  const httpServer = createServer((request, response) => {
+  const httpServer = createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
       response.end(JSON.stringify({ status: "ready", protocolVersion: PROTOCOL_VERSION }))
@@ -113,6 +161,35 @@ export function createRelayServer({
     if (request.method === "GET" && request.url === "/metrics") {
       response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
       response.end(JSON.stringify(metrics))
+      return
+    }
+    if (request.method === "POST" && request.url === "/v1/publish") {
+      if (!validPublishSecret(request.headers.authorization, publishSecret)) {
+        jsonHttpResponse(response, 401, { success: false, error: "Unauthorized" })
+        return
+      }
+      if (!(request.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
+        jsonHttpResponse(response, 415, { success: false, error: "JSON content type required" })
+        return
+      }
+      const body = await readPublishBody(request)
+      if (body.tooLarge) {
+        jsonHttpResponse(response, 413, { success: false, error: "Publish payload too large" })
+        return
+      }
+      if (body.invalid || !validPublishPayload(body.value)) {
+        jsonHttpResponse(response, 400, { success: false, error: "Invalid publish payload" })
+        return
+      }
+      if (recentPublishes.has(body.value.sequence)) {
+        jsonHttpResponse(response, 202, { success: true, duplicate: true })
+        return
+      }
+      recentPublishes.add(body.value.sequence)
+      if (recentPublishes.size > MAX_RECENT_PUBLISHES) recentPublishes.delete(recentPublishes.values().next().value)
+      const changed = { type: "attendance.changed", sequence: body.value.sequence, changedAt: body.value.changedAt }
+      for (const audience of audiences) send(audience, changed)
+      jsonHttpResponse(response, 202, { success: true, duplicate: false })
       return
     }
     response.writeHead(404).end()
