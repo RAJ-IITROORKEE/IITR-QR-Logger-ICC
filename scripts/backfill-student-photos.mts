@@ -1,5 +1,5 @@
-import { PrismaClient } from "@prisma/client"
-import type { Prisma } from "@prisma/client"
+import { PrismaClient } from "@/.generated/prisma"
+import type { Prisma } from "@/.generated/prisma"
 
 import { fetchAndStoreStudentPhoto } from "../lib/qr-biometric-photo-storage.ts"
 import { isStoredStudentPhotoUrl } from "../lib/qr-biometric-photo.ts"

@@ -1,47 +1,81 @@
-# QR Biometric ICC Architecture
+# IITR QR Attendance Logger Architecture
 
 ## Purpose
 
-The QR Biometric ICC system records attendance from an M5AtomS3 QR scanner and
-updates authenticated dashboards as soon as MongoDB has durably committed the
-canonical attendance result. It uses a persistent WebSocket connection for low
-latency, while retaining the same idempotent HTTPS API as a safe fallback.
+An M5AtomS3 QR scanner records attendance through a low-latency WebSocket relay.
+MongoDB is the authoritative store. The relay improves transport latency but never
+creates a successful attendance result itself.
 
-The authoritative state is MongoDB. The relay accelerates delivery; it does not
-invent a successful scan or own attendance data.
+## Architectural Guarantees
+
+- A successful scanner acknowledgement represents a completed durable API result,
+  not a queued relay message.
+- `lib/attendance-ledger.ts` is the canonical transaction boundary for QR and
+  Tab5 attendance sources; route handlers do not duplicate ledger policy.
+- Realtime notifications are metadata-only wake-up hints. Browsers and Tab5
+  displays re-read authenticated API state after receiving a hint.
+- Stable scan/event identities make compatible retries idempotent; an identity
+  reused with different payload data is rejected as a conflict.
+- `AttendanceChange` and `AttendanceFeedCounter` create an ordered durable
+  recovery path, while `QrBiometricDeletion` prevents deleted scans returning
+  through delayed delivery.
+
+## Repository Boundaries
+
+| Area | Ownership | Important paths |
+| --- | --- | --- |
+| Presentation | Next.js pages, public/admin UI, client refresh hooks | `app/`, `components/`, `hooks/` |
+| HTTP contracts | Request parsing, response mapping, authorization gates | `app/api/` |
+| Domain ledger | Idempotency, projections, change creation, durable outcomes | `lib/attendance-ledger.ts` |
+| Device security | API key/MAC validation and versioned device contracts | `lib/attendance-device-*.ts` |
+| Persistence | Prisma client, MongoDB schema and indexes | `lib/prisma.ts`, `prisma/schema.prisma` |
+| Realtime | Token signing, relay publishing, socket protocol | `lib/realtime-*`, `relay/qr-realtime/` |
+| Hardware references | AtomS3 scanner implementation and policies | `arduino_code/` |
+
+```mermaid
+flowchart TB
+  UI[App Router UI] --> Routes[API routes]
+  Routes --> Auth[Browser/device authentication]
+  Routes --> Contract[Validated scanner and Tab5 contracts]
+  Contract --> Ledger[Canonical attendance ledger]
+  Ledger --> Prisma[Prisma data access]
+  Prisma --> Mongo[(MongoDB)]
+  Ledger --> Publisher[Relay publisher]
+  Publisher --> Relay[Cloud Run realtime relay]
+```
 
 ## Production Topology
 
 ```mermaid
 flowchart LR
-  Scanner["M5AtomS3 QRB scanner\nESP32-S3"]
-  Relay["Cloud Run relay\nasia-south1, one warm instance"]
-  Web["Vercel Next.js API\nbom1 Mumbai"]
-  Database["MongoDB Atlas\nAWS ap-south-1 Mumbai"]
-  Dashboards["Public and admin browsers"]
-  Dosw["DOSW student profile service"]
+  Scanner[M5AtomS3 QR scanner]
+  Relay[Cloud Run relay\nasia-south1]
+  Api[Vercel Next.js API\nbom1 Mumbai]
+  Database[MongoDB Atlas\nAWS ap-south-1 Mumbai]
+  Dashboards[Public and admin dashboards]
+  Dosw[DOSW profile service]
 
-  Scanner -->|"WSS /v1/realtime"| Relay
-  Relay -->|"HTTPS POST, same scanId"| Web
-  Web -->|"Prisma MongoDB transaction"| Database
-  Web -->|"unknown profiles only"| Dosw
-  Relay -->|"attendance.changed WSS"| Dashboards
-  Dashboards -->|"authenticated HTTPS refresh"| Web
-  Dashboards -->|"1.5 s sequence polling fallback"| Web
-  Scanner -.->|"HTTPS fallback before relay submission"| Web
+  Scanner -->|WSS /v1/realtime| Relay
+  Relay -->|HTTPS POST, same scanId| Api
+  Api -->|transaction| Database
+  Api -. unknown profile only .-> Dosw
+  Relay -->|attendance.changed| Dashboards
+  Dashboards -->|authenticated refresh| Api
+  Dashboards -. 1.5 second polling fallback .-> Api
+  Scanner -. relay unavailable before send .->|HTTPS fallback| Api
 ```
 
-All latency-sensitive services are in Mumbai:
+All stateful, latency-sensitive production components are in Mumbai:
 
 | Component | Placement | Reason |
 | --- | --- | --- |
-| QR relay | Google Cloud Run `asia-south1` | Near the scanner and database |
-| Next.js functions | Vercel `bom1` | Near MongoDB |
-| MongoDB | AWS `ap-south-1` | Authoritative attendance storage |
-| Browser static assets | Vercel CDN | Served near the browser |
+| Cloud Run relay | `asia-south1` | Close to scanner and database |
+| Vercel functions | `bom1` | Close to MongoDB |
+| MongoDB | AWS `ap-south-1` | Durable attendance state |
+| Static dashboard assets | Vercel CDN | Close to browser users |
 
-`vercel.json` enforces `bom1` for Vercel Functions. The Vercel build machine
-may be in another region; function execution is what matters for requests.
+`vercel.json` pins Vercel Functions to `bom1`. The remote build worker location
+does not determine where an API request executes.
 
 ## Firmware
 
@@ -52,343 +86,252 @@ Primary source files:
 - `arduino_code/qr_logger_icc_m5_qr_extended_timeout/qr_relay_policy.h`
 - `arduino_code/qr_logger_icc_m5_qr_extended_timeout/qr_wifi_policy.h`
 
-### Hardware and initialization
+### Hardware and task ownership
 
-- Board: M5AtomS3 with ESP32-S3-PICO-1.
-- QR module: M5UnitQRCode UART, ESP RX GPIO 5 and ESP TX GPIO 6 at 115200 baud.
-- M5Unified supplies display, button, speaker, IMU, and power integration.
-- The QR module uses manual trigger mode.
-- Wi-Fi uses station mode with modem sleep disabled by `WiFi.setSleep(false)`.
-- The default firmware build uses ignored `secrets.h`. It is never committed,
-  logged, placed in a URL, or sent to browser code.
-- A separately provisioned QRB-001 uses ignored `secrets_qrb001.h` only when
-  compiled with `QRB001_BUILD`. This keeps multiple scanners from sharing an
-  identity or API key.
-
-### Tasks and ownership
+- Board: M5AtomS3, ESP32-S3-PICO-1.
+- QR unit: M5UnitQRCode UART, ESP RX GPIO 5 and ESP TX GPIO 6 at 115200 baud.
+- The main Arduino loop owns QR decoding, screen, IMU, button, and Wi-Fi
+  association.
+- A pinned FreeRTOS upload worker owns TLS, NTP, WebSocket state, and cloud
+  delivery. Network work never blocks QR decoding.
+- The queue is eight fixed-size `ScanJob` records in RAM. It is intentionally
+  not persistent: an unacknowledged scan is lost after reset or power loss.
 
 ```mermaid
 flowchart TB
-  Loop["Arduino loop task"]
-  Uploader["Pinned upload worker\nCore 0, priority 1"]
-  Queue["Static FreeRTOS RAM queue\n8 ScanJob records"]
-  UiQueue["Upload UI event queue"]
-  QR["QR UART module"]
-  Wifi["ESP32 Wi-Fi station"]
-  Display["M5 display and IMU"]
-
-  QR --> Loop
-  Display --> Loop
-  Wifi --> Loop
-  Loop --> Queue
-  Queue --> Uploader
-  Uploader --> UiQueue
-  UiQueue --> Loop
+  QR[QR UART] --> Loop[Arduino loop]
+  Imu[IMU, display, button] --> Loop
+  Wifi[Wi-Fi station] --> Loop
+  Loop --> Queue[Static RAM queue: 8 scans]
+  Queue --> Worker[Upload worker]
+  Worker --> Events[UI event queue]
+  Events --> Loop
 ```
 
-The main loop owns scanner, IMU, display, and Wi-Fi association. The uploader
-owns network delivery, TLS clients, NTP synchronization, and the WebSocket
-client. This keeps a slow cloud request off the QR decode loop.
+The default firmware build uses ignored `secrets.h`. A separately provisioned
+QRB-001 build uses ignored `secrets_qrb001.h` only with `QRB001_BUILD`. Neither
+credential file may be committed, logged, or placed in browser code or URLs.
 
-### QR scan flow
+### Scan and idle flow
 
-1. While awake, the scanner is retriggered every 1.6 seconds.
-2. `readQrFrame()` collects library fragments for up to 450 ms and waits for an
-   80 ms quiet period. It accepts at most 512 bytes.
-3. The device accepts only an HTTPS DOSW StudentProxy URL with a nonempty `id`.
-   Invalid QR data is rejected before any network request.
-4. A matching QR shown again within 30 seconds displays `DUP` and is not sent.
-   This prevents a QR left in front of the reader from creating competing
-   attendance requests. `DUP` is not a Wi-Fi or cloud error.
-5. A valid, nonduplicate QR gets a cryptographically random 24-hex `scanId` and
-   is appended to the static queue. The display immediately shows `SCANNED`.
-6. The worker retains the queue head until an exact durable acknowledgement. It
-   removes exactly one record only after that acknowledgement.
+1. While awake, the manual QR trigger is reissued every 1.6 seconds.
+2. `readQrFrame()` collects QR-library fragments for up to 450 ms, completes
+   after 80 ms quiet, and accepts at most 512 bytes.
+3. Firmware accepts only DOSW StudentProxy HTTPS URLs with a nonempty `id`.
+4. Repeated identical data within 30 seconds displays `DUP`. This prevents a QR
+   kept in front of the scanner from creating concurrent attendance requests.
+5. A valid scan gets a random 24-hex `scanId`, is queued, and immediately shows
+   `SCANNED`.
+6. The worker removes that queue head only after an exact cloud acknowledgement.
 
-### Scanner-only idle mode
-
-After 10 seconds without IMU motion, the firmware sends only QR trigger-off.
-It does not use ESP deep sleep. The display, CPU, Wi-Fi state machine, upload
-worker, and relay connection remain active. Button press or sufficient movement
-reenables the QR trigger immediately.
+After ten seconds without movement, scanner-only idle sends QR trigger-off. It
+does not use ESP deep sleep: the display, CPU, Wi-Fi state machine, queue, and
+uploader stay active. A button press or sufficient motion enables QR scanning
+immediately.
 
 ### Wi-Fi recovery
 
-`maintainWiFiConnection()` runs on every `loop()` iteration, before the idle
-return, so it runs whether the QR trigger is on or off.
+`maintainWiFiConnection()` runs in every loop iteration before the idle return.
+It therefore continues while QR scanning is off.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Connecting: WiFi.begin
   Connecting --> Connected: WL_CONNECTED
   Connected --> Connecting: connection lost
-  Connecting --> WaitRetry: attempt exceeds 15 s
-  WaitRetry --> Connecting: 5 s retry deadline
-  Connected --> Connected: status checked every loop
+  Connecting --> WaitRetry: attempt stalled for 15 seconds
+  WaitRetry --> Connecting: retry due after 5 seconds
 ```
 
 Rules:
 
-- Startup does not block on Wi-Fi; scanning initializes immediately.
-- Wi-Fi auto-reconnect is enabled and SDK credential persistence is disabled.
-- Every connection attempt has a 15-second maximum. A stalled attempt is
-  disconnected, then a new non-blocking `WiFi.begin()` is scheduled five seconds
-  later.
-- The retry policy does not treat `WL_IDLE_STATUS` as permanently active after
-  its own attempt timed out. This fixes the prior long-running failure where the
-  device could remain disconnected until a reset.
-- `W:OK` means ESP32 has a station connection and IP. `W:--` means not
-  connected; the automatic retry state machine is running.
-- On real recovery, the main loop wakes the upload worker and it restarts NTP
-  timing. The upload worker resets its WebSocket transport and reconnects it
-  only after Wi-Fi is back.
+- Startup begins Wi-Fi asynchronously; scanner initialization does not wait.
+- Wi-Fi modem sleep is disabled. SDK credential persistence is disabled.
+- Each association attempt has a 15-second maximum. A stalled attempt is
+  disconnected and a fresh `WiFi.begin()` is scheduled five seconds later.
+- `WL_IDLE_STATUS` is treated as active only while this firmware has a current
+  association attempt. After timeout it cannot block future retries.
+- On Wi-Fi loss, the upload worker disconnects and clears the WebSocket state.
+  On recovery it starts a fresh TLS WebSocket connection before resuming relay
+  traffic.
 - A Wi-Fi loss during an active relay acknowledgement wait immediately stops that
   wait, retains the scan, and lets the worker rebuild the transport after Wi-Fi
   returns.
-- No reconnect loop blocks QR decoding or screen updates.
+- All recovery is nonblocking. QR/UI processing continues through outage.
 
-### Device-to-cloud delivery
+Expected serial messages during an outage and recovery include:
+
+```text
+WiFi connection lost
+WiFi attempt stalled; scheduling reconnect
+Starting non-blocking WiFi connection
+WiFi restored
+WiFi restored: restarting realtime relay transport
+Realtime relay ready
+```
+
+### Strict device delivery semantics
 
 ```mermaid
 sequenceDiagram
-  participant QR as QR module
   participant ESP as AtomS3 worker
   participant Relay as Cloud Run relay
   participant API as Vercel QR API
   participant DB as MongoDB
-  participant UI as Browser dashboard
+  participant Browser as Dashboard
 
-  QR->>ESP: decoded DOSW URL
-  ESP->>ESP: random scanId, enqueue RAM record
   ESP->>Relay: scan.submit(scanId, decodedData)
-  Relay->>API: HTTPS POST with same scanId
-  API->>DB: save reading and canonical attendance transaction
-  DB-->>API: committed reading, event, projection, change
-  API-->>Relay: success + same scanId + persistence.saved
+  Relay->>API: HTTPS POST using same scanId
+  API->>DB: raw reading and canonical transaction
+  DB-->>API: durable commit
+  API-->>Relay: success, matching scanId, persistence.saved
   Relay-->>ESP: scan.ack
-  Relay-->>UI: attendance.changed
-  ESP->>ESP: remove matching queue head
-  UI->>API: authenticated authoritative refresh
+  Relay-->>Browser: attendance.changed
+  ESP->>ESP: remove queue head
+  Browser->>API: authoritative refresh
 ```
 
-The scanner WebSocket uses the Cloud Run hostname and the `GTS Root R1` CA. The
-direct HTTPS API uses `ISRG Root X1`. Both TLS paths validate certificates.
+The worker accepts an acknowledgement only when all conditions hold: HTTP 2xx,
+`success: true`, exactly matching `scanId`, and `persistence.status: "saved"`.
 
-### Relay and HTTPS decisions
+- If relay is unavailable before sending, the worker uses direct HTTPS with the
+  same scan ID.
+- Once a relay submission was sent, it waits up to 25 seconds and retries through
+  the relay. It does not launch a competing direct HTTPS request.
+- Transient failures remain queued with exponential retry from 2 to 60 seconds.
+- Explicit invalid QR, HTTP 413/422, or confirmed scan-ID collision are terminal.
+- Provisioning failures such as 400/401/403/noncollision 409 remain queued and
+  are rechecked after 60 seconds.
 
-- The scanner authenticates by sending its device ID, API key, and MAC in the
-  first encrypted WebSocket message. Credentials are never query parameters.
-- Before accepting scans, the relay validates the scanner against the existing
-  API using a `device-online` request.
-- Once a `scan.submit` was sent successfully, the worker waits up to 25 seconds
-  for that relay attempt and retries the same queued `scanId` through the relay.
-  It does not launch a concurrent direct HTTPS request.
-- HTTPS is used immediately only when the relay was unavailable before a send.
-  It posts the same `scanId`, so a retry is idempotent.
-- Transport faults, malformed responses, and 5xx responses remain queued with
-  exponential retry from 2 to 60 seconds.
-- Explicit invalid QR, 413, 422, or a confirmed scan-ID collision are terminal.
-  Provisioning errors such as 400, 401, 403, and noncollision 409 are retained
-  and checked again after 60 seconds.
-- A successful screen state (`IN`, `OUT`, `MARKED`, then `UPLOADED`) requires
-  `2xx`, `success: true`, exact matching `scanId`, and
-  `persistence.status: "saved"`.
+The relay TLS connection uses GTS Root R1. Direct HTTPS uses ISRG Root X1.
 
-### RAM queue tradeoff
-
-The queue is intentionally RAM-only at the user's request to remove LittleFS,
-Preferences, profile caching, and flash writes. It holds eight pending scans.
-If power is lost or the board resets before cloud acknowledgement, those
-pending scans are lost. This is the unavoidable tradeoff for no device-side
-persistent storage. A full queue displays `Q FULL` and never silently overwrites
-an earlier scan.
-
-## Cloud Run Realtime Relay
+## Cloud Run Relay
 
 Source: `relay/qr-realtime/`.
 
-### Endpoints and protocol
-
-| Endpoint | Purpose |
+| Endpoint | Function |
 | --- | --- |
 | `GET /health` | Readiness and protocol version |
-| `GET /metrics` | In-memory connection and upstream latency counters |
-| `WSS /v1/realtime` | Version 1 device and dashboard protocol |
+| `GET /metrics` | In-memory connection and upstream timing counters |
+| `WSS /v1/realtime` | Versioned scanner/dashboard protocol |
 
-Every JSON message contains `v: 1`. WebSocket limits are 16 KiB, compression is
+Protocol v1 has a 16 KiB message bound, no compression, five-second auth limit,
+and fifteen-second ping/pong heartbeat.
 
-Scanner protocol:
+Scanner flow:
 
 ```text
 client -> { v: 1, type: "auth", role: "scanner", deviceId, apiKey, macAddress }
-server -> { v: 1, type: "ready", role: "scanner", heartbeatMs, ... }
+server -> { v: 1, type: "ready", role: "scanner", heartbeatMs }
 client -> { v: 1, type: "scan.submit", scanId, decodedData }
 server -> { v: 1, type: "scan.ack", scanId, httpStatus, result }
 ```
 
-`scan.ack` is emitted only for the exact durable API response. Other upstream
-outcomes become `scan.result` with a status and retryable signal.
+`scan.ack` is emitted only after the upstream QR API returns the exact durable
+result. Other outcomes are sent as `scan.result` with retry information.
 
-Dashboard protocol:
+Dashboard flow:
 
 ```text
 client -> { v: 1, type: "auth", role: "dashboard", token }
-server -> { v: 1, type: "ready", role: "dashboard", ... }
-server -> { v: 1, type: "attendance.changed", scanId, deviceId, entryState, changedAt }
+server -> { v: 1, type: "ready", role: "dashboard" }
+server -> { v: 1, type: "attendance.changed", scanId, deviceId, entryState }
 ```
 
-The notification does not contain student profile data. The browser refreshes
-its authenticated API data after receiving it.
+Dashboard notifications contain no student profile data. The browser fetches
+authoritative data from Vercel after a notification.
 
-### Relay reliability and security
+Security and reliability controls:
 
-- Scanner API keys exist only in the relay connection memory and the encrypted
-  upstream HTTPS request.
-- Browser/dashboard tokens are HMAC-SHA256, audience-bound, random-nonce tokens
-  issued by Vercel for 60 seconds. They never contain a device API key.
-- The relay accepts only an HTTPS upstream origin in production.
-- Authentication must complete within five seconds; it also validates scanner
-  device status upstream.
-- Ping/pong heartbeat runs every 15 seconds. Dead sockets are terminated.
-- Only one scanner socket is active for a device ID; a newer connection
-  supersedes the old socket.
-- Scanner rate is limited to five submissions per second.
-- A single-flight map keyed by `deviceId:scanId` joins retries to a still-running
-  upstream operation. Durable results are cached briefly; transient results are
-  not cached, so the next retry can reach the API.
-- Outgoing buffers are bounded. The relay is configured for one warm, maximum
-  one Cloud Run instance because audience fan-out is process-local. Do not raise
-  the maximum without adding shared fan-out such as Pub/Sub or Redis.
+- Scanner API keys exist only in encrypted connection memory and upstream HTTPS.
+- The relay authenticates scanners upstream using `device-online` before ready.
+- Browser tokens are Vercel-issued, HMAC-SHA256, audience-bound, nonce-bearing,
+  and valid for 60 seconds.
+- Only HTTPS upstream origins are accepted in production.
+- One scanner socket is active per device ID; a new socket replaces an old one.
+- Scanner traffic is rate limited to five submits per second.
+- A single-flight operation keyed by `deviceId:scanId` joins retries to one
+  physical upstream operation. Durable responses are cached briefly; transient
+  failures are not cached.
+- Fan-out is process-local, so Cloud Run is deliberately one warm, maximum-one
+  instance. Do not scale it horizontally without Pub/Sub or Redis fan-out.
 
-## Vercel Application and MongoDB
+## Vercel API and MongoDB
 
-### Authentication and QR ingestion
+`app/api/qr-biometric-icc/route.ts` is the authoritative scanner endpoint:
 
-`app/api/qr-biometric-icc/route.ts` is the authoritative QR API.
+1. Verifies enabled `QR_SCANNER` device and hashed API key.
+2. Validates/locks supplied MAC. Non-auth activity writes use `after()`.
+3. Validates DOSW URL and exact 24-hex scan ID.
+4. Looks up indexed `StudentIdentity.doswUrl` before history or external DOSW.
+5. Saves `QrBiometricReading` and executes canonical attendance transaction.
+6. Returns durable success only for canonical `APPLIED` or
+   `SUPPRESSED_DUPLICATE` with matching scan ID and saved persistence status.
 
-1. It verifies a registered, enabled `QR_SCANNER` device and its hashed API key.
-2. It validates/locks the MAC address when supplied. Device activity writes that
-   do not affect authorization are deferred with `after()`.
-3. It validates the DOSW QR URL and exact 24-hex `scanId`.
-4. It resolves known student profiles from indexed `StudentIdentity.doswUrl`
-   first. This avoids an external profile fetch for known students.
-5. Unknown profiles may call DOSW with an eight-second bound. Profile/photo work
-   outside durable attendance semantics can run after the main response.
-6. It saves the raw `QrBiometricReading`, then runs the canonical attendance
-   transaction.
-7. It responds durable success only after canonical processing is `APPLIED` or
-   `SUPPRESSED_DUPLICATE`, with the exact original `scanId` and `saved` status.
+Unknown profiles can request DOSW with an eight-second bound. Known students do
+not make that external request. Replaying the same ID and payload is idempotent;
+the same ID with different data conflicts. Deletion tombstones prevent retries
+from restoring deleted scans.
 
-Replaying the same `scanId` and payload is safe. A reused `scanId` with different
-decoded data is a conflict. Tombstones prevent an administrator-deleted scan
-from being restored by a retry.
+`lib/attendance-ledger.ts` transactionally maintains:
 
-### Canonical attendance and change feed
-
-`lib/attendance-ledger.ts` is the canonical attendance writer. In MongoDB
-transactions it maintains:
-
-- `StudentIdentity`: normalized enrollment, DOSW URL, profile, and photo.
-- `AttendanceEvent`: idempotent source event with a unique deduplication key.
-- `AttendanceProjection`: current canonical IN/OUT state per student.
-- `AttendanceChange`: ordered outbox record and snapshot.
-- `AttendanceFeedCounter`: transactionally incremented global sequence.
+- `StudentIdentity`: enrollment, normalized DOSW URL, profile/photo.
+- `AttendanceEvent`: idempotent source event and unique deduplication key.
+- `AttendanceProjection`: canonical current IN/OUT state.
 - `QrBiometricReading`: raw log synchronized to canonical effective state.
+- `AttendanceChange` and `AttendanceFeedCounter`: ordered transactional outbox
+  and durable global sequence for dashboard recovery.
 
-The transactional change outbox lets dashboards detect durable updates without
-trusting process-local memory or WebSocket delivery.
+`/api/qr-biometric-icc/realtime-token` verifies a browser session and returns a
+private no-store relay token. `/api/qr-biometric-icc/changes` is session-authenticated
+and returns current durable sequence with `retryAfterMs: 1500`.
 
-### Dashboard synchronization
+Dashboards use WebSocket notification while visible, reconnect with jitter, and
+coalesce refreshes. They retain one-and-a-half-second sequence polling and a
+periodic full refresh. Missed relay notifications cannot leave a dashboard stale.
 
-```mermaid
-sequenceDiagram
-  participant Browser as Dashboard
-  participant Token as Realtime token route
-  participant Relay as Relay
-  participant Changes as Changes route
-  participant API as QR API
-
-  Browser->>Token: authenticated GET realtime-token
-  Token-->>Browser: short-lived WSS token and URL
-  Browser->>Relay: WSS auth token
-  Relay-->>Browser: ready
-  Relay-->>Browser: attendance.changed
-  Browser->>API: full authenticated refresh
-  Browser->>Changes: poll sequence every 1.5 s
-  Changes-->>Browser: current sequence
-```
-
-- `app/api/qr-biometric-icc/realtime-token/route.ts` authenticates the browser
-  session and returns a private, no-store relay token and WSS URL.
-- `hooks/use-qr-realtime-updates.ts` uses WebSocket notifications while visible,
-  reconnects with bounded jitter, and coalesces concurrent refresh requests.
-- `app/api/qr-biometric-icc/changes/route.ts` returns only the current durable
-  sequence and asks clients to poll every 1.5 seconds.
-- Public/staff and admin dashboards retain their sequence polling and periodic
-  full refresh fallback. A relay restart or missed notification cannot leave the
-  dashboard permanently stale.
-
-## Failure and Recovery Matrix
-
-| Failure | Device behavior | Cloud/dashboard behavior |
-| --- | --- | --- |
-| Wi-Fi disconnect | `W:--`; main loop retries forever without reset; QR/UI remain active | Upload waits; relay transport resets; reconnect resumes delivery |
-| Wi-Fi attempt stalls | Abort at 15 s, wait 5 s, begin again even in `WL_IDLE_STATUS` | No manual reset required |
-| Relay unavailable before a scan send | Same `scanId` uses direct HTTPS | API persists normally; dashboard polling still observes it |
-| Relay fails after a scan send | Retain queue head and retry relay; no competing direct POST | Single-flight relay avoids duplicate upstream transactions |
-| Vercel/Mongo transient fault | Retain record with exponential retry | No durable ACK or notification is emitted |
-| Device auth/MAC error | Queue retained; `CONFIG ERR`, `BAD KEY`, or `MAC/ID ERR` | Correct provisioning must be restored |
-| Invalid QR | Rejected locally or terminally removed only for explicit invalid status | No attendance change |
-| Same QR held in front of scanner | `DUP` for 30 seconds | Avoids duplicate records and transaction contention |
-| Browser WSS disconnect | Browser reconnects when visible | 1.5-second sequence polling and periodic refresh self-heal |
-| Relay instance restart | Scanner reconnects, browser reconnects | MongoDB outbox/polling retain the authoritative state |
-| ESP reset/power loss | Pending RAM-only records are lost | Previously acknowledged records remain durable |
-
-## Operations
-
-### Health checks
-
-- Relay: `GET /health` must return `status: ready` and protocol version 1.
-- Relay: `GET /metrics` exposes scanner/audience counts, durable ACK count,
-  upstream failures, request count, and recent upstream latency.
-- Vercel: production QR API and `/changes` return private 401 without a session,
-  proving the routes are live without exposing data.
-- Vercel response headers should contain `X-Vercel-Id: bom1::bom1::...`.
-- Arduino serial monitor is 115200 baud. Important messages include Wi-Fi loss,
-  reconnect scheduling/restoration, relay ready, durable acknowledgement, and
-  upload retry classification.
-
-### Normal display interpretation
+## Display States and Recovery
 
 | Screen | Meaning |
 | --- | --- |
-| `W:OK` | Wi-Fi station connected |
-| `W:--` | Wi-Fi disconnected; automatic recovery is running |
-| `SCANNED` | Valid QR is in the RAM queue |
-| `IN` / `OUT` / `MARKED` | Exact durable attendance acknowledgement received |
-| `UPLOADED` | Queue is drained after cloud acknowledgement |
-| `DUP` | Same QR ignored during the 30-second local suppression window |
+| `W:OK` | Wi-Fi station connected with IP |
+| `W:--` | Wi-Fi disconnected; automatic recovery active |
+| `SCANNED` | Valid QR is in RAM queue |
+| `IN` / `OUT` / `MARKED` | Exact durable attendance result received |
+| `UPLOADED` | Queue drained after acknowledgement |
+| `DUP` | Same QR ignored within local 30-second suppression window |
 | `OFFLINE` / `RETRY` | Record retained for automatic delivery retry |
-| `CONFIG ERR` | Device key, MAC, ID, or payload provisioning rejection |
-| `Q FULL` | Eight volatile queue slots are occupied |
-| `QR OFF` | Scanner-only idle; Wi-Fi and uploader are still running |
+| `CONFIG ERR` | Device key, MAC, ID, or payload provisioning issue |
+| `Q FULL` | All eight volatile queue slots occupied |
+| `QR OFF` | Scanner-only idle; Wi-Fi and uploader continue |
 
-## Verification Commands
+| Failure | Device behavior | Cloud behavior |
+| --- | --- | --- |
+| Wi-Fi disconnect | Keeps UI/QR active; retries forever without reset | Upload waits; relay resets on recovery |
+| Wi-Fi stall | Abort at 15s; fresh attempt after 5s | No manual reset required |
+| Relay unavailable before send | Direct HTTPS with same ID | Normal API persistence |
+| Relay failure after send | Retains queue head and retries relay | Single-flight prevents duplicate upstream work |
+| Vercel/Mongo transient error | Retains record and retries | No ACK or dashboard notification |
+| Browser relay disconnect | Browser reconnects while visible | Polling/fallback refresh self-heal |
+| Board power loss | Pending RAM records are lost | Earlier acknowledged records stay durable |
 
-Run firmware checks from the repository root:
+## Verification
 
 ```powershell
 & "C:\Users\rajra\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --fqbn m5stack:esp32:m5stack_atoms3 "arduino_code\qr_logger_icc_m5_qr_extended_timeout"
 & "C:\Users\rajra\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" upload --fqbn m5stack:esp32:m5stack_atoms3 --port COM7 "arduino_code\qr_logger_icc_m5_qr_extended_timeout"
 g++ -std=c++17 tests/qr_wifi_policy_test.cpp -o qr_wifi_policy_test.exe
 .\qr_wifi_policy_test.exe
+npm test
+npx tsc --noEmit
+npm run build
 ```
 
 ### QRB-001 isolated build
 
-Provision the QRB-001 device record and MAC lock before flashing. Create the
-ignored `secrets_qrb001.h` from `secrets_qrb001.h.example` with QRB-001's own
-device ID, API key, and Wi-Fi settings. Never replace the default `secrets.h`.
+Provision QRB-001 and its MAC lock first. Create ignored `secrets_qrb001.h`
+from `secrets_qrb001.h.example` with QRB-001's unique device ID, API key, and
+Wi-Fi settings. Do not replace the default `secrets.h` used by QRB-201.
 
 ```powershell
 $buildPath = Join-Path $env:TEMP "qrb001-firmware-build"
@@ -396,17 +339,77 @@ $buildPath = Join-Path $env:TEMP "qrb001-firmware-build"
 & "C:\Users\rajra\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" upload --fqbn m5stack:esp32:m5stack_atoms3 --port COM8 --build-path $buildPath "arduino_code\qr_logger_icc_m5_qr_extended_timeout"
 ```
 
-Leave `QRB001_BUILD` undefined for the default QRB-201 build; it then uses
-`secrets.h` and the normal compile/upload commands above.
+Leave `QRB001_BUILD` undefined for QRB-201; the normal commands above use
+`secrets.h`.
 
-Run application checks:
+Check relay `/health` and `/metrics`. A live Vercel response should contain
+`X-Vercel-Id: bom1::bom1::...`. Keep real credentials out of source,
+documentation, browser variables, terminal output, and Git.
 
-```powershell
-npm test
-npx tsc --noEmit
-npm run build
+## Current Device API Workflow
+
+The M5Tab5 uses the versioned `/api/device/v1/` contract. Its primary recovery
+loop is deliberately independent of the relay:
+
+```mermaid
+sequenceDiagram
+  participant Tab as Tab5 network service
+  participant Feed as GET /api/device/v1/feed
+  participant DB as MongoDB ledger/change feed
+  participant Relay as Realtime relay
+
+  Tab->>Feed: authenticated cursor request
+  Feed->>DB: latest snapshot and ordered changes
+  DB-->>Feed: durable state
+  Feed-->>Tab: cursor, reset/hasMore, retryAfterMs, latest snapshot
+  Tab->>Tab: apply a changed Home snapshot revision
+  Relay-->>Tab: attendance.changed hint
+  Tab->>Feed: expedite next authoritative poll
 ```
 
-Do not place secrets in source, documentation, browser variables, command
-output, or Git. Use ignored firmware secrets, Vercel server-only variables, and
-Google Secret Manager for deployment credentials.
+| Device endpoint | Responsibility |
+| --- | --- |
+| `GET /api/device/v1/feed` | Cursor-based changes and authoritative latest-attendance snapshot |
+| `POST /api/device/v1/manual-events` | Idempotent upload of locally durable Tab5 events |
+| `GET /api/device/v1/students/lookup` | Enrollment lookup for local workflows |
+| `GET /api/device/v1/photos/[identityId]` | Controlled profile photo retrieval |
+| `GET /api/device/v1/realtime-token` | Short-lived display relay authorization |
+
+The feed can return an authoritative empty latest snapshot. Consumers must replace
+their cached snapshot rather than merging omitted fields as a partial patch. A
+retention/reset response is a recovery instruction, not a client failure.
+
+## Data Ownership
+
+| Model | Source of truth |
+| --- | --- |
+| `Device` | Provisioned scanner/Tab5 configuration, API-key hash, MAC binding, status |
+| `StudentIdentity` | Normalized enrollment, source URL, profile, and photo reference |
+| `AttendanceEvent` | Immutable canonical source event and deduplication identity |
+| `AttendanceProjection` | Current IN/OUT state per identity |
+| `QrBiometricReading` | Scanner-facing raw record correlated to canonical outcome |
+| `AttendanceChange` | Ordered durable outbox item for client recovery |
+| `AttendanceFeedCounter` | Monotonic sequence generator for the change feed |
+| `QrBiometricDeletion` | Tombstone that blocks delayed retry resurrection |
+| `AccessAccount` | Protected dashboard account and password hash |
+
+## Production Change Rules
+
+1. Keep scanner and Tab5 APIs backward-compatible until deployed firmware is
+   migrated. Add versioned contract tests for any new field or behavior.
+2. Keep polling/feed recovery even when relay connectivity is healthy. Never make
+   a WebSocket notification the only path to updated attendance.
+3. Review Prisma schema changes, index impact, and backfills as explicit
+   operations; application startup must not mutate production data.
+4. Configure strong unique `ADMIN_*`, `ACCESS_*`, device, and relay secrets in
+   platform secret stores. Example values are development-only.
+5. Keep Vercel, MongoDB, Blob, and relay operational telemetry free of credential
+   values and student QR payloads.
+
+## References
+
+- [Next.js](https://nextjs.org/docs)
+- [Prisma MongoDB connector](https://www.prisma.io/docs/orm/overview/databases/mongodb)
+- [Vercel Blob](https://vercel.com/docs/storage/vercel-blob)
+- [Cloud Run](https://cloud.google.com/run/docs)
+- [`ws` WebSocket library](https://github.com/websockets/ws)

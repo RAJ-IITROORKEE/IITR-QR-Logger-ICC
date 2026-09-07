@@ -11,6 +11,7 @@
     "photos:backfill": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/backfill-student-photos.mts",
     "attendance:backfill": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/backfill-attendance-ledger.mts",
     "attendance:migrate-dedup": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/migrate-attendance-deduplication.mts",
+    "mongo:validate:nonprod": "node --env-file-if-exists=.env.local --env-file-if-exists=.env --experimental-strip-types scripts/validate-nonprod-mongo.mts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push"
@@ -32,6 +33,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.0",
+    "sharp": "0.34.5",
     "shadcn": "^4.10.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",

@@ -28,12 +28,12 @@ test("rejects missing or malformed scan IDs", () => {
 })
 
 test("distinguishes an omitted scan ID from every supplied malformed value", () => {
-  assert.equal(JSON.stringify(resolveScanId(undefined, undefined)), '{"supplied":false,"value":null}')
-  assert.equal(JSON.stringify(resolveScanId(null, null)), '{"supplied":false,"value":null}')
-  assert.equal(JSON.stringify(resolveScanId(123, undefined)), '{"supplied":true,"value":null}')
-  assert.equal(JSON.stringify(resolveScanId({}, undefined)), '{"supplied":true,"value":null}')
-  assert.equal(JSON.stringify(resolveScanId("", undefined)), '{"supplied":true,"value":null}')
-  assert.equal(JSON.stringify(resolveScanId(null, "0123456789ABCDEFabcdef01")), '{"supplied":true,"value":"0123456789abcdefabcdef01"}')
+  assert.equal(JSON.stringify(resolveScanId(undefined)), '{"supplied":false,"value":null}')
+  assert.equal(JSON.stringify(resolveScanId(null)), '{"supplied":false,"value":null}')
+  assert.equal(JSON.stringify(resolveScanId(123)), '{"supplied":true,"value":null}')
+  assert.equal(JSON.stringify(resolveScanId({})), '{"supplied":true,"value":null}')
+  assert.equal(JSON.stringify(resolveScanId("")), '{"supplied":true,"value":null}')
+  assert.equal(JSON.stringify(resolveScanId("0123456789ABCDEFabcdef01")), '{"supplied":true,"value":"0123456789abcdefabcdef01"}')
 })
 
 test("recognizes an exact replay and rejects a scan ID collision", () => {
