@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useQrRealtimeUpdates } from "@/hooks/use-qr-realtime-updates"
 import { QrDecodedPayloadLink, QrEntryStateBadge, QrScanDetailsDialog, QrStudentAvatar, QrStudentInfoPanel, qrStudentDisplayName } from "@/components/qr-biometric/qr-student-scan-details"
-import { useQrRealtimeUpdates } from "@/hooks/use-qr-realtime-updates"
 import type { QrBiometricApiResponse, QrBiometricReading, QrBiometricStudentSummary } from "@/types/qr-biometric"
 
 type Mode = "dashboard" | "logs" | "analytics"

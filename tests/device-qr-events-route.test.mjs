@@ -47,7 +47,7 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
     if (specifier === "@/lib/realtime-relay-publisher") return { publishRealtimeAttendanceHint: async () => {} }
     throw new Error(`Unexpected module: ${specifier}`)
   }
-  const module = { exports: {} }
+  const cjsModule = { exports: {} }
   vm.runInNewContext(compiled, {
     Buffer,
     Date,
@@ -62,12 +62,12 @@ function loadRoute({ auth = { ok: true, device: { deviceId: "TAB5-001" } }, exis
       profileFetches += 1
       return new Response("<html></html>", { status: profile ? 200 : 503, headers: { "content-type": "text/html" } })
     },
-    exports: module.exports,
-    module,
+    exports: cjsModule.exports,
+    module: cjsModule,
     require: moduleRequire,
     setTimeout,
   }, { filename: ROUTE })
-  return { POST: module.exports.POST, stats: () => ({ created, canonicalCalls, profileFetches }) }
+  return { POST: cjsModule.exports.POST, stats: () => ({ created, canonicalCalls, profileFetches }) }
 }
 
 function request(body, headers = {}) {

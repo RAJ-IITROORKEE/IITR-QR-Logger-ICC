@@ -28,7 +28,7 @@ function json(body: object, status = 200) {
 function normalizeScanId(value: unknown): string | null {
   if (typeof value !== "string") return null
   const normalized = value.trim()
-  return /^[A-Za-z0-9_-]{1,64}$/.test(normalized) ? normalized : null
+  return new RegExp(`^[A-Za-z0-9_-]{1,${MAX_SCAN_ID}}$`).test(normalized) ? normalized : null
 }
 
 function stableReadingId(deviceId: string, scanId: string, decodedData: string) {

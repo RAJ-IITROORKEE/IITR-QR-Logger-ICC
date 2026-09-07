@@ -112,6 +112,9 @@ function loadLedger(identities = [], events = []) {
     require: (specifier) => {
       if (specifier === "node:crypto") return { createHash }
       if (specifier === "./attendance-device-contract.ts") return contract
+      if (specifier === "./fingerprint-device-contract.ts") return {
+        hashFingerprintEventPayload: ({ deviceId, eventId }) => `${deviceId}:${eventId}`,
+      }
       if (specifier === "./qr-biometric-photo.ts") return photo
       if (specifier === "./qr-biometric-student.ts") return student
       if (specifier === "./prisma.ts") return { prisma: { $transaction: async (operation) => {

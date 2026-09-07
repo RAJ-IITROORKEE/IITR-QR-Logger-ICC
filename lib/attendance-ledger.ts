@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto"
-import type { Prisma } from "@prisma/client"
+import type { Prisma } from "@/.generated/prisma"
 
 import {
   attendanceEventDeduplicationKey,
   chunkAttendanceReadingIds,
+  compareAttendanceEvents,
   hashManualAttendancePayload,
   normalizeEnrollmentKey,
   rebuildAttendanceProjection,
@@ -11,13 +12,14 @@ import {
   type AttendanceIntent,
   type AttendanceTimeQuality,
   type ManualAttendanceBatch,
+  type ProjectionInputEvent,
 } from "./attendance-device-contract.ts"
 import { hashFingerprintEventPayload, type FingerprintAttendanceBatch } from "./fingerprint-device-contract.ts"
 import type { AuthenticatedAttendanceDevice } from "./attendance-device-auth.ts"
 import { isStoredStudentPhotoUrl } from "./qr-biometric-photo.ts"
 import { isDoswStudentUrl, normalizeDecodedUrl } from "./qr-biometric-student.ts"
 import { prisma } from "./prisma.ts"
-import type { QrStudentInfo } from "../types/qr-biometric.ts"
+import type { QrEntryState, QrStudentInfo, QrStudentInfoStatus } from "../types/qr-biometric.ts"
 
 type Transaction = Prisma.TransactionClient
 let lastReconciliationAt = 0
@@ -63,11 +65,53 @@ export type CanonicalAttendanceOptions = {
   emitChange?: boolean
 }
 
+export type ManualQrAttendanceInput = {
+  manualActionId: string
+  decodedData: string
+  occurredAt: Date
+  entryState: QrEntryState
+  studentInfo: QrStudentInfo
+  studentPhotoUrl: string | null
+  studentInfoStatus: QrStudentInfoStatus
+  studentInfoError: string | null
+}
+
+export type ManualQrAttendanceResult = {
+  reading: {
+    id: string
+    deviceId: string
+    decodedData: string
+    scanStatus: string
+    entryState: QrEntryState
+    characterCount: number
+    studentInfo: Prisma.JsonValue | null
+    studentPhotoUrl: string | null
+    studentInfoStatus: string | null
+    studentInfoError: string | null
+    createdAt: Date
+  }
+  status: "APPLIED" | "SUPPRESSED_DUPLICATE"
+  effectiveState: AttendanceEntryState
+}
+
 export class AttendanceEventConflictError extends Error {
   constructor(message = "eventId or deviceSequence is already assigned to different attendance data") {
     super(message)
     this.name = "AttendanceEventConflictError"
   }
+}
+
+export class NonDurableCanonicalAttendanceError extends Error {
+  constructor(readonly status: string) {
+    super(`Attendance was not durably canonicalized: ${status}`)
+    this.name = "NonDurableCanonicalAttendanceError"
+  }
+}
+
+export function isDurableCanonicalAttendanceStatus(
+  status: string,
+): status is "APPLIED" | "SUPPRESSED_DUPLICATE" {
+  return status === "APPLIED" || status === "SUPPRESSED_DUPLICATE"
 }
 
 function isRetryableTransactionError(error: unknown): boolean {
@@ -193,28 +237,7 @@ async function rebuildStudentProjection(tx: Transaction, identity: AttendanceIde
     },
   })
 
-  if (emitGlobalChange && rebuilt.latestEffectiveEventId) {
-    const latestStored = storedEvents.find((event) => event.eventId === rebuilt.latestEffectiveEventId)
-    if (latestStored) {
-      await emitAttendanceChange(tx, "LATEST_SNAPSHOT", asInputJson({
-        event: {
-          eventId: latestStored.eventId,
-          occurredAt: latestStored.occurredAt.toISOString(),
-          entryState: rebuilt.currentState,
-          sourceType: latestStored.sourceType,
-          status: "APPLIED",
-        },
-        student: {
-          identityId: identity.id,
-          name: identity.fullName,
-          enrollment: identity.enrollmentNo,
-          photoVersion: identity.photoVersion,
-          photoPath: identity.studentPhotoUrl ? `/api/device/v1/photos/${identity.id}?v=${identity.photoVersion}` : null,
-        },
-        projectionVersion,
-      }), latestStored.eventId)
-    }
-  }
+  if (emitGlobalChange) await publishLatestAttendanceSnapshotInTransaction(tx)
 
   return { ...rebuilt, projectionVersion }
 }
@@ -282,7 +305,7 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
     for (const enrollmentKey of touchedEnrollments) {
       const identity = identities.get(enrollmentKey)
       if (!identity) continue
-      const rebuilt = await rebuildStudentProjection(tx, identity)
+      const rebuilt = await rebuildStudentProjection(tx, identity, false)
       for (const result of rebuilt.events) {
         const outcome = outcomes.get(result.eventId)
         if (outcome) {
@@ -291,6 +314,8 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
         }
       }
     }
+
+    if (touchedEnrollments.size > 0) await publishLatestAttendanceSnapshotInTransaction(tx)
 
     for (const eventId of newEventIds) {
       const outcome = outcomes.get(eventId)!
@@ -376,7 +401,7 @@ export async function recordFingerprintAttendanceBatch(device: AuthenticatedAtte
     for (const enrollmentKey of touchedEnrollments) {
       const identity = identities.get(enrollmentKey)
       if (!identity) continue
-      const rebuilt = await rebuildStudentProjection(tx, identity)
+      const rebuilt = await rebuildStudentProjection(tx, identity, false)
       for (const result of rebuilt.events) {
         const outcome = outcomes.get(result.eventId)
         if (outcome) {
@@ -385,6 +410,8 @@ export async function recordFingerprintAttendanceBatch(device: AuthenticatedAtte
         }
       }
     }
+
+    if (touchedEnrollments.size > 0) await publishLatestAttendanceSnapshotInTransaction(tx)
 
     for (const eventId of newEventIds) {
       const outcome = outcomes.get(eventId)!
@@ -441,7 +468,11 @@ function canonicalQrPayloadHash(input: CanonicalQrAttendanceInput, enrollmentKey
   })).digest("hex")
 }
 
-export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceInput, options: CanonicalAttendanceOptions = {}) {
+async function recordCanonicalQrAttendanceInTransaction(
+  tx: Transaction,
+  input: CanonicalQrAttendanceInput,
+  options: CanonicalAttendanceOptions = {},
+) {
   const enrollmentKey = normalizeEnrollmentKey(input.studentInfo.enrollmentNo)
   const doswUrl = normalizeDecodedUrl(input.decodedData)
   if (!enrollmentKey || !doswUrl || !isDoswStudentUrl(doswUrl)) return { status: "PENDING_PROFILE" as const, effectiveState: null }
@@ -451,8 +482,7 @@ export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceIn
   const intent = options.intent ?? "QR_TOGGLE"
   const deduplicationKey = attendanceEventDeduplicationKey(input.sourceDeviceId, null, eventId)
   const payloadHash = canonicalQrPayloadHash(input, enrollmentKey, eventId, sourceType, intent)
-  return runTransactionWithRetry(async (tx) => {
-    const [rawReading, deletion] = await Promise.all([
+  const [rawReading, deletion] = await Promise.all([
       tx.qrBiometricReading.findUnique({ where: { id: input.readingId }, select: { id: true } }),
       tx.qrBiometricDeletion.findUnique({ where: { scanId: input.readingId }, select: { id: true } }),
     ])
@@ -543,7 +573,66 @@ export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceIn
       where: { id: input.readingId },
       data: { enrollmentKey, attendanceEventId: eventId },
     })
-    return { status: eventResult?.status ?? "APPLIED", effectiveState: eventResult?.effectiveState ?? null }
+  return { status: eventResult?.status ?? "APPLIED", effectiveState: eventResult?.effectiveState ?? null }
+}
+
+export async function recordCanonicalQrAttendance(input: CanonicalQrAttendanceInput, options: CanonicalAttendanceOptions = {}) {
+  return runTransactionWithRetry((tx) => recordCanonicalQrAttendanceInTransaction(tx, input, options))
+}
+
+export async function recordManualQrAttendance(input: ManualQrAttendanceInput): Promise<ManualQrAttendanceResult> {
+  return runTransactionWithRetry(async (tx) => {
+    const eventId = `legacy:${input.manualActionId}`
+    const intent = input.entryState === "IN" ? "MANUAL_SET_IN" : "MANUAL_SET_OUT"
+    const enrollmentKey = normalizeEnrollmentKey(input.studentInfo.enrollmentNo)
+    const existingEvent = await tx.attendanceEvent.findUnique({ where: { eventId } })
+    if (existingEvent) {
+      const existingReading = await tx.qrBiometricReading.findUnique({ where: { id: input.manualActionId } })
+      if (!existingReading || existingEvent.sourceDeviceId !== "MANUAL" ||
+          existingEvent.intent !== intent || existingEvent.enrollmentKey !== enrollmentKey ||
+          existingReading.decodedData !== input.decodedData ||
+          !isDurableCanonicalAttendanceStatus(existingEvent.status) ||
+          (existingEvent.effectiveState !== "IN" && existingEvent.effectiveState !== "OUT")) {
+        throw new AttendanceEventConflictError("manualActionId is already assigned to different attendance data")
+      }
+      return {
+        reading: { ...existingReading, entryState: existingEvent.effectiveState },
+        status: existingEvent.status,
+        effectiveState: existingEvent.effectiveState,
+      }
+    }
+
+    const reading = await tx.qrBiometricReading.create({
+      data: {
+        id: input.manualActionId,
+        deviceId: "MANUAL",
+        decodedData: input.decodedData,
+        scanStatus: "success",
+        entryState: input.entryState,
+        characterCount: input.decodedData.length,
+        studentInfo: asInputJson(input.studentInfo),
+        studentPhotoUrl: input.studentPhotoUrl ?? undefined,
+        studentInfoStatus: input.studentInfoStatus,
+        studentInfoError: input.studentInfoError ?? undefined,
+        createdAt: input.occurredAt,
+      },
+    })
+    const canonical = await recordCanonicalQrAttendanceInTransaction(tx, {
+      readingId: reading.id,
+      sourceDeviceId: "MANUAL",
+      decodedData: reading.decodedData,
+      occurredAt: reading.createdAt,
+      studentInfo: input.studentInfo,
+      studentPhotoUrl: input.studentPhotoUrl,
+    }, { eventId, sourceType: "LEGACY", intent })
+    if (!isDurableCanonicalAttendanceStatus(canonical.status) || !canonical.effectiveState) {
+      throw new NonDurableCanonicalAttendanceError(canonical.status)
+    }
+    return {
+      reading: { ...reading, entryState: canonical.effectiveState },
+      status: canonical.status,
+      effectiveState: canonical.effectiveState,
+    }
   })
 }
 
@@ -562,7 +651,7 @@ async function voidCanonicalAttendanceForReadingsInTransaction(tx: Transaction, 
     for (const identityId of identityIds) {
       const identity = await tx.studentIdentity.findUnique({ where: { id: identityId } })
       if (!identity) continue
-      const rebuilt = await rebuildStudentProjection(tx, identity, true)
+      const rebuilt = await rebuildStudentProjection(tx, identity, false)
       if (!rebuilt.latestEffectiveEventId) {
         await emitAttendanceChange(tx, "PROJECTION_CORRECTED", asInputJson({
           event: null,
@@ -578,6 +667,7 @@ async function voidCanonicalAttendanceForReadingsInTransaction(tx: Transaction, 
         }), null)
       }
     }
+    await publishLatestAttendanceSnapshotInTransaction(tx)
   }
   return events.length
 }
@@ -653,36 +743,76 @@ export async function reconcilePendingCanonicalReadings(limit = 10) {
   return reconciled
 }
 
-export async function publishLatestAttendanceSnapshot() {
-  return runTransactionWithRetry(async (tx) => {
-    const projection = await tx.attendanceProjection.findFirst({
-      orderBy: { latestOccurredAt: "desc" },
-    })
-    if (!projection?.latestEffectiveEventId || !projection.studentIdentityId) return false
-    const [identity, event] = await Promise.all([
-      tx.studentIdentity.findUnique({ where: { id: projection.studentIdentityId } }),
-      tx.attendanceEvent.findUnique({ where: { eventId: projection.latestEffectiveEventId } }),
-    ])
-    if (!identity || !event) return false
-    await emitAttendanceChange(tx, "LATEST_SNAPSHOT", asInputJson({
-      event: {
-        eventId: event.eventId,
-        occurredAt: event.occurredAt.toISOString(),
-        entryState: projection.currentState,
-        sourceType: event.sourceType,
-        status: event.status,
-      },
-      student: {
-        identityId: identity.id,
-        name: identity.fullName,
-        enrollment: identity.enrollmentNo,
-        photoVersion: identity.photoVersion,
-        photoPath: identity.studentPhotoUrl ? `/api/device/v1/photos/${identity.id}?v=${identity.photoVersion}` : null,
-      },
-      projectionVersion: projection.version,
-    }), event.eventId)
-    return true
+async function publishLatestAttendanceSnapshotInTransaction(tx: Transaction) {
+  const events = await tx.attendanceEvent.findMany({
+    where: {
+      status: "APPLIED",
+      effectiveState: { in: ["IN", "OUT"] },
+      intent: { in: ["QR_TOGGLE", "FINGERPRINT_TOGGLE", "MANUAL_SET_IN", "MANUAL_SET_OUT"] },
+      timeQuality: { in: ["SERVER", "SYNCED_RTC"] },
+      studentIdentityId: { not: null },
+    },
   })
+  const latest = events
+    .filter((event) => !event.voidedAt && event.studentIdentityId !== null)
+    .reduce<typeof events[number] | null>((candidate, event) => {
+      if (!candidate) return event
+      const eventOrder: ProjectionInputEvent = {
+        eventId: event.eventId,
+        intent: event.intent as AttendanceIntent,
+        occurredAt: event.occurredAt,
+        sourceDeviceId: event.sourceDeviceId,
+        deviceSequence: event.deviceSequence,
+        timeQuality: event.timeQuality as AttendanceTimeQuality,
+      }
+      const candidateOrder: ProjectionInputEvent = {
+        eventId: candidate.eventId,
+        intent: candidate.intent as AttendanceIntent,
+        occurredAt: candidate.occurredAt,
+        sourceDeviceId: candidate.sourceDeviceId,
+        deviceSequence: candidate.deviceSequence,
+        timeQuality: candidate.timeQuality as AttendanceTimeQuality,
+      }
+      return compareAttendanceEvents(eventOrder, candidateOrder) > 0 ? event : candidate
+    }, null)
+
+  if (!latest || !latest.studentIdentityId) {
+    await emitAttendanceChange(tx, "LATEST_SNAPSHOT", asInputJson({
+      event: null,
+      student: null,
+      projectionVersion: 0,
+    }), null)
+    return true
+  }
+
+  const [identity, projection] = await Promise.all([
+    tx.studentIdentity.findUnique({ where: { id: latest.studentIdentityId } }),
+    tx.attendanceProjection.findUnique({ where: { enrollmentKey: latest.enrollmentKey! } }),
+  ])
+  if (!identity || !projection) return false
+
+  await emitAttendanceChange(tx, "LATEST_SNAPSHOT", asInputJson({
+    event: {
+      eventId: latest.eventId,
+      occurredAt: latest.occurredAt.toISOString(),
+      entryState: projection.currentState,
+      sourceType: latest.sourceType,
+      status: latest.status,
+    },
+    student: {
+      identityId: identity.id,
+      name: identity.fullName,
+      enrollment: identity.enrollmentNo,
+      photoVersion: identity.photoVersion,
+      photoPath: identity.studentPhotoUrl ? `/api/device/v1/photos/${identity.id}?v=${identity.photoVersion}` : null,
+    },
+    projectionVersion: projection.version,
+  }), latest.eventId)
+  return true
+}
+
+export async function publishLatestAttendanceSnapshot() {
+  return runTransactionWithRetry((tx) => publishLatestAttendanceSnapshotInTransaction(tx))
 }
 
 export async function updateCanonicalStudentPhoto(decodedData: string, enrollmentNo: string | undefined, studentPhotoUrl: string) {
@@ -693,32 +823,10 @@ export async function updateCanonicalStudentPhoto(decodedData: string, enrollmen
   return runTransactionWithRetry(async (tx) => {
     const identity = await tx.studentIdentity.findFirst({ where: { enrollmentKey, doswUrl } })
     if (!identity || identity.studentPhotoUrl === studentPhotoUrl) return false
-    const updatedIdentity = await tx.studentIdentity.update({
+    await tx.studentIdentity.update({
       where: { id: identity.id },
       data: { studentPhotoUrl, photoVersion: { increment: 1 }, lastSeenAt: new Date() },
     })
-    const projection = await tx.attendanceProjection.findUnique({ where: { enrollmentKey } })
-    if (!projection?.latestEffectiveEventId) return true
-    const latestEvent = await tx.attendanceEvent.findUnique({ where: { eventId: projection.latestEffectiveEventId } })
-    if (!latestEvent) return true
-
-    await emitAttendanceChange(tx, "LATEST_SNAPSHOT", asInputJson({
-      event: {
-        eventId: latestEvent.eventId,
-        occurredAt: latestEvent.occurredAt.toISOString(),
-        entryState: projection.currentState,
-        sourceType: latestEvent.sourceType,
-        status: latestEvent.status,
-      },
-      student: {
-        identityId: updatedIdentity.id,
-        name: updatedIdentity.fullName,
-        enrollment: updatedIdentity.enrollmentNo,
-        photoVersion: updatedIdentity.photoVersion,
-        photoPath: `/api/device/v1/photos/${updatedIdentity.id}?v=${updatedIdentity.photoVersion}`,
-      },
-      projectionVersion: projection.version,
-    }), latestEvent.eventId)
-    return true
+    return publishLatestAttendanceSnapshotInTransaction(tx)
   })
 }

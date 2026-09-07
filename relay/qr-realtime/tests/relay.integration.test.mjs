@@ -177,7 +177,7 @@ test("ACKs and broadcasts only after the upstream API durably saves the same sca
 
 test("does not broadcast or manufacture an ACK for an incomplete upstream response", async (t) => {
   const upstream = createServer(async (request, response) => {
-    for await (const _ of request) { /* drain */ }
+    for await (const chunk of request) void chunk
     response.setHeader("content-type", "application/json")
     response.end(JSON.stringify({ success: true, persistence: { status: "saved" } }))
   })
@@ -245,7 +245,7 @@ test("rejects plaintext upstream URLs unless a test explicitly opts in", () => {
 
 test("does not time out a structurally valid scanner while upstream auth is running", async (t) => {
   const upstream = createServer(async (request, response) => {
-    for await (const _ of request) { /* drain */ }
+    for await (const chunk of request) void chunk
     await new Promise((resolve) => setTimeout(resolve, 80))
     response.setHeader("content-type", "application/json")
     response.end(JSON.stringify({ success: true, deviceId: scannerId }))

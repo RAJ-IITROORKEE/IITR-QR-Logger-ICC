@@ -132,14 +132,21 @@ export function QrBiometricDashboard() {
   const [manualCurrentStatus, setManualCurrentStatus] = useState<QrEntryState | null>(null)
   const [manualEntryState, setManualEntryState] = useState<QrEntryState>("IN")
   const fetchControllerRef = useRef<AbortController | null>(null)
+  const fetchPromiseRef = useRef<Promise<void> | null>(null)
+  const fetchKeyRef = useRef<string | null>(null)
   const changeSequenceRef = useRef<string | null>(null)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(() => {
+    const requestKey = `${page}\0${search.trim()}`
+    if (fetchPromiseRef.current !== null && fetchKeyRef.current === requestKey) {
+      return fetchPromiseRef.current
+    }
     fetchControllerRef.current?.abort()
     const controller = new AbortController()
     fetchControllerRef.current = controller
 
-    try {
+    const request = (async () => {
+      try {
       const params = new URLSearchParams({ limit: "12", page: String(page) })
       if (search.trim()) params.set("search", search.trim())
       const response = await fetch(`/api/qr-biometric-icc?${params.toString()}`, { cache: "no-store", signal: controller.signal })
@@ -150,12 +157,22 @@ export function QrBiometricDashboard() {
       if (result.changeSequence) changeSequenceRef.current = result.changeSequence
       setHasLoadedData(true)
       setFetchError(result.warning ?? null)
-    } catch (error) {
+      } catch (error) {
       if (controller.signal.aborted) return
       setFetchError(error instanceof Error ? error.message : "Dashboard data is temporarily unavailable")
-    } finally {
+      } finally {
       if (fetchControllerRef.current === controller) setLoading(false)
-    }
+      }
+    })()
+    fetchPromiseRef.current = request
+    fetchKeyRef.current = requestKey
+    void request.finally(() => {
+      if (fetchPromiseRef.current === request) {
+        fetchPromiseRef.current = null
+        fetchKeyRef.current = null
+      }
+    })
+    return request
   }, [page, search])
 
   const refreshForChange = useEffectEvent(async () => {
@@ -218,9 +235,8 @@ export function QrBiometricDashboard() {
   }, [fetchData])
 
   const latest = data.latest
-  const featuredReading = manualReading ?? latest
+  const featuredReading = latest
   const online = data.health.status === "online"
-  const featuredTime = formatClock(featuredReading?.timestamp)
   const actualLatestTime = formatClock(latest?.timestamp)
 
   async function handleManualLookup(event: FormEvent<HTMLFormElement>) {
@@ -239,7 +255,8 @@ export function QrBiometricDashboard() {
       if (!response.ok) throw new Error("Manual lookup failed")
 
       const result = (await response.json()) as QrApiResponse
-      setData(result)
+      // A lookup response is a manual-form snapshot, not a live-feed transition.
+      setData((current) => ({ ...result, latest: current.latest }))
       setHasLoadedData(true)
       setFetchError(result.warning ?? null)
 
@@ -425,7 +442,7 @@ export function QrBiometricDashboard() {
           <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">Latest Event</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <QrCode className="h-5 w-5 shrink-0 text-orange-500" />
-            <p className="min-w-0 text-lg font-bold text-orange-500">{featuredReading ? (manualReading ? "MANUAL" : "SCAN OK") : "-"}</p>
+            <p className="min-w-0 text-lg font-bold text-orange-500">{featuredReading ? "SCAN OK" : "-"}</p>
             {featuredReading && <QrEntryStateBadge state={featuredReading.entryState} />}
           </div>
           <p className="mt-1 line-clamp-1 break-all text-xs text-muted-foreground">{featuredReading ? qrStudentDisplayName(featuredReading) : "No scan yet"}</p>
@@ -487,14 +504,12 @@ export function QrBiometricDashboard() {
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="min-w-0 break-words text-2xl font-bold leading-tight text-orange-100">{qrStudentDisplayName(featuredReading)}</p>
                     <QrEntryStateBadge state={featuredReading.entryState} />
-                    {manualReading && <span className="rounded-full border border-orange-300/30 bg-orange-300/10 px-2.5 py-1 text-xs font-bold text-orange-100">Manual lookup</span>}
                   </div>
                   <p className="break-words text-sm text-orange-100/75">Enrollment: <span className="font-mono text-orange-100">{featuredReading.studentInfo?.enrollmentNo ?? "--"}</span></p>
                   {featuredReading.studentInfo?.bhawan && <p className="text-sm text-orange-100/75">Bhawan: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.bhawan}</span></p>}
                   {featuredReading.studentInfo?.year && <p className="text-sm text-orange-100/75">Year: <span className="font-semibold text-orange-100">{featuredReading.studentInfo.year}</span></p>}
                   {featuredReading.studentInfo?.emailId && <p className="break-all text-sm text-orange-100/75">Email: <span className="font-mono text-orange-100">{featuredReading.studentInfo.emailId}</span></p>}
-                  <p className="font-mono text-xs text-orange-100/65">{featuredReading.entryState} time: {featuredTime}</p>
-                  {manualReading && <Button onClick={() => setManualReading(null)} size="sm" variant="outline" className="mt-1 border-orange-300/30 bg-orange-300/10 text-orange-100 hover:bg-orange-300/20 hover:text-white">Show live latest</Button>}
+                  <p className="font-mono text-xs text-orange-100/65">{featuredReading.entryState} time: {actualLatestTime}</p>
                 </div>
               </div>
             ) : (
@@ -518,12 +533,21 @@ export function QrBiometricDashboard() {
             </div>
             <div className="min-w-0 rounded-xl border border-orange-300/20 bg-[#1b120b] p-4">
               <p className="text-[11px] uppercase tracking-[0.18em] text-orange-100/70">Last Update</p>
-              <p className="mt-2 inline-flex min-w-0 items-center gap-2 font-mono text-base text-orange-100/90"><Clock3 className="h-4 w-4 shrink-0" />{manualReading ? featuredTime : actualLatestTime}</p>
+              <p className="mt-2 inline-flex min-w-0 items-center gap-2 font-mono text-base text-orange-100/90"><Clock3 className="h-4 w-4 shrink-0" />{actualLatestTime}</p>
               <p className="mt-1 text-xs text-orange-100/60">{relativeSeconds(data.health.lastSeenSeconds)}</p>
             </div>
           </div>
         </div>
       </section>
+
+      {manualReading && (
+        <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
+          <p className="font-semibold text-emerald-700 dark:text-emerald-300">Last manual submission</p>
+          <p className="mt-1 text-muted-foreground">
+            {qrStudentDisplayName(manualReading)} marked {manualReading.entryState} at {formatClock(manualReading.timestamp)}
+          </p>
+        </section>
+      )}
 
       <section className="rounded-3xl border border-border bg-card/75">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4">
