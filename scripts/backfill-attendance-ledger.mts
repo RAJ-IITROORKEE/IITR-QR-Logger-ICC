@@ -89,7 +89,7 @@ async function main() {
     ],
   })
   const stats = new Map<string, number>()
-  const existingEventIds = new Set((await prisma.attendanceEvent.findMany({ select: { eventId: true } })).map((event) => event.eventId))
+  const existingEventIds = new Set((await prisma.attendanceEvent.findMany({ select: { eventId: true } })).map((event: { eventId: string }) => event.eventId))
   const allPendingCandidates = candidates.filter((row) => !existingEventIds.has(row.deviceId === "MANUAL" ? `legacy:${row.id}` : `qr:${row.id}`))
   const pendingCandidates = allPendingCandidates.slice(0, limit)
   stats.set("ALREADY_PRESENT", candidates.length - allPendingCandidates.length)

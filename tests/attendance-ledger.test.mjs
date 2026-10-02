@@ -7,6 +7,7 @@ import ts from "typescript"
 import * as contract from "../lib/attendance-device-contract.ts"
 import * as photo from "../lib/qr-biometric-photo.ts"
 import * as student from "../lib/qr-biometric-student.ts"
+import * as dashboardMirror from "../lib/tab5-dashboard-mirror.ts"
 
 const PHOTO = "https://test.private.blob.vercel-storage.com/student-photos/test.jpg"
 
@@ -117,6 +118,7 @@ function loadLedger(identities = [], events = []) {
       }
       if (specifier === "./qr-biometric-photo.ts") return photo
       if (specifier === "./qr-biometric-student.ts") return student
+      if (specifier === "./tab5-dashboard-mirror.ts") return dashboardMirror
       if (specifier === "./prisma.ts") return { prisma: { $transaction: async (operation) => {
         const snapshot = transactionTables.map(cloneValue)
         try {
@@ -130,7 +132,7 @@ function loadLedger(identities = [], events = []) {
     },
   })
   return {
-    ...cjsModule.exports, changes, events, projections, readings,
+    ...cjsModule.exports, changes, events, projections, readings, tx,
     latest: () => changes.filter((item) => item.kind === "LATEST_SNAPSHOT").at(-1)?.snapshot,
   }
 }
@@ -297,4 +299,71 @@ test("manual action IDs cannot be reused with different attendance data", async 
   })
   assert.equal(ledger.readings.length, 1)
   assert.equal(ledger.events.length, 1)
+})
+
+function tab5Batch(owner, sequence = "1", intent = "MANUAL_SET_IN") {
+  return { bootId: "test-boot", events: [{ eventId: `tab5-test-${sequence}`,
+    deviceSequence: sequence, intent, enrollmentKey: owner.enrollmentKey,
+    occurredAt: new Date(`2026-08-05T10:${String(Number(sequence)).padStart(2, "0")}:00Z`),
+    timeQuality: "SYNCED_RTC" }] }
+}
+
+test("Tab5 alternating students are logged in the dashboard exactly once on replay", async () => {
+  const a = identity("A"), b = identity("B")
+  const ledger = loadLedger([a, b])
+  const device = { deviceId: "TEST-TAB5" }
+  for (const [owner, sequence, intent] of [[a, "1", "MANUAL_SET_IN"], [b, "2", "MANUAL_SET_IN"],
+      [a, "3", "MANUAL_SET_OUT"], [b, "4", "MANUAL_SET_OUT"]]) {
+    const batch = tab5Batch(owner, sequence, intent)
+    const [first] = await ledger.recordManualAttendanceBatch(device, batch)
+    const [replay] = await ledger.recordManualAttendanceBatch(device, batch)
+    assert.equal(first.status, "APPLIED")
+    assert.equal(replay.replayed, true)
+  }
+  assert.equal(ledger.readings.length, 4)
+  assert.deepEqual(ledger.readings.map((row) => row.entryState), ["IN", "IN", "OUT", "OUT"])
+  assert.ok(ledger.readings.every((row) => row.deviceId === "MANUAL" && /^[a-f0-9]{24}$/.test(row.id)))
+})
+
+test("already-uploaded Tab5 events support dry-run and idempotent recovery", async () => {
+  const owner = identity("A")
+  const stored = event("old", owner, "10", { eventId: "tab5-old", sourceType: "TAB5_MANUAL" })
+  const ledger = loadLedger([owner], [stored])
+  assert.equal(await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx, stored, true), "wouldCreate")
+  assert.equal(ledger.readings.length, 0)
+  assert.equal(await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx, stored), "created")
+  assert.equal(await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx, stored), "existing")
+  assert.equal(ledger.readings.length, 1)
+  assert.equal(ledger.readings[0].createdAt.getTime(), stored.occurredAt.getTime())
+})
+
+test("pending and voided Tab5 events are not shown as applied dashboard attendance", async () => {
+  const owner = identity("A"), ledger = loadLedger([owner])
+  for (const status of ["PENDING_IDENTITY", "PENDING_TIME", "REJECTED", "VOIDED"]) {
+    assert.equal(await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx,
+      event(status, owner, "10", { sourceType: "TAB5_MANUAL", status })), "ineligible")
+  }
+  assert.equal(await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx,
+    event("voided", owner, "10", { sourceType: "TAB5_MANUAL", voidedAt: new Date() })), "ineligible")
+  assert.equal(ledger.readings.length, 0)
+})
+
+test("canonical reprojection updates an existing Tab5 dashboard state without duplicating it", async () => {
+  const owner = identity("A"), ledger = loadLedger([owner])
+  const stored = event("changed", owner, "10", { sourceType: "TAB5_MANUAL" })
+  await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx, stored)
+  assert.equal(ledger.readings[0].entryState, "IN")
+  await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx, { ...stored, effectiveState: "OUT" })
+  assert.equal(ledger.readings[0].entryState, "OUT")
+  assert.equal(ledger.readings.length, 1)
+})
+
+test("deleting a Tab5 dashboard row voids its linked event and recovery cannot resurrect it", async () => {
+  const owner = identity("A"), ledger = loadLedger([owner])
+  await ledger.recordManualAttendanceBatch({ deviceId: "TEST-TAB5" }, tab5Batch(owner))
+  const id = ledger.readings[0].id
+  await ledger.deleteCanonicalAttendanceReadings([id], "test deletion")
+  assert.equal(ledger.events[0].status, "VOIDED")
+  assert.equal(await dashboardMirror.mirrorTab5DashboardEvent(ledger.tx, ledger.events[0]), "ineligible")
+  assert.equal(ledger.readings.length, 0)
 })

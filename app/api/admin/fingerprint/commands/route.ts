@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import type { Prisma } from "@prisma/client"
+import type { Prisma } from "@/.generated/prisma"
 import { NextRequest, NextResponse } from "next/server"
 
 import { ACCESS_SESSION_COOKIE, ADMIN_ACCESS_ROLES, verifyAccessSession } from "@/lib/access-auth"

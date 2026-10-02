@@ -19,6 +19,7 @@ import type { AuthenticatedAttendanceDevice } from "./attendance-device-auth.ts"
 import { isStoredStudentPhotoUrl } from "./qr-biometric-photo.ts"
 import { isDoswStudentUrl, normalizeDecodedUrl } from "./qr-biometric-student.ts"
 import { prisma } from "./prisma.ts"
+import { mirrorTab5DashboardEvent } from "./tab5-dashboard-mirror.ts"
 import type { QrEntryState, QrStudentInfo, QrStudentInfoStatus } from "../types/qr-biometric.ts"
 
 type Transaction = Prisma.TransactionClient
@@ -205,6 +206,9 @@ async function rebuildStudentProjection(tx: Transaction, identity: AttendanceIde
         },
       })
     }
+    if (storedEvent) await mirrorTab5DashboardEvent(tx, {
+      ...storedEvent, status: event.status, effectiveState: event.effectiveState,
+    })
     const readingId = event.eventId.startsWith("qr:")
       ? event.eventId.slice(3)
       : event.eventId.startsWith("legacy:") ? event.eventId.slice(7) : null
@@ -313,6 +317,12 @@ export async function recordManualAttendanceBatch(device: AuthenticatedAttendanc
           outcome.effectiveState = result.effectiveState
         }
       }
+    }
+
+    // Replays also repair events accepted before the dashboard bridge was deployed.
+    for (const event of batch.events) {
+      const stored = await tx.attendanceEvent.findUnique({ where: { eventId: event.eventId } })
+      if (stored) await mirrorTab5DashboardEvent(tx, stored)
     }
 
     if (touchedEnrollments.size > 0) await publishLatestAttendanceSnapshotInTransaction(tx)
@@ -637,7 +647,13 @@ export async function recordManualQrAttendance(input: ManualQrAttendanceInput): 
 }
 
 async function voidCanonicalAttendanceForReadingsInTransaction(tx: Transaction, readingIds: string[], reason: string) {
-  const eventIds = readingIds.flatMap((id) => [`qr:${id}`, `legacy:${id}`])
+  const linkedReadings = await tx.qrBiometricReading.findMany({
+    where: { id: { in: readingIds } }, select: { attendanceEventId: true },
+  })
+  const eventIds = [...new Set([
+    ...readingIds.flatMap((id) => [`qr:${id}`, `legacy:${id}`]),
+    ...linkedReadings.flatMap((row) => row.attendanceEventId ? [row.attendanceEventId] : []),
+  ])]
   const events = await tx.attendanceEvent.findMany({
     where: { eventId: { in: eventIds }, status: { not: "VOIDED" } },
     select: { eventId: true, studentIdentityId: true },
