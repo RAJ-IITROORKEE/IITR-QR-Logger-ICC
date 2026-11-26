@@ -1,7 +1,7 @@
 import { cookies } from "next/headers"
 
+import { LandingPage } from "@/components/landing/landing-page"
 import { QrBiometricDashboard } from "@/components/qr-biometric/qr-biometric-dashboard"
-import { HomeHeroLogin } from "@/components/site/home-hero-login"
 import { PublicShell } from "@/components/site/public-shell"
 import { ACCESS_SESSION_COOKIE, verifyAccessSession } from "@/lib/access-auth"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin-auth"
@@ -16,7 +16,7 @@ export default async function Home() {
 
   return (
     <PublicShell authenticated={authenticated}>
-      {authenticated ? <QrBiometricDashboard /> : <HomeHeroLogin />}
+      {authenticated ? <QrBiometricDashboard /> : <LandingPage />}
     </PublicShell>
   )
 }

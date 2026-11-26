@@ -102,7 +102,7 @@ function formatDate(value: string | null) {
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
-    <pre className="overflow-x-auto rounded-2xl border border-border bg-muted/45 p-4 text-xs leading-6 text-foreground">
+    <pre className="overflow-x-auto rounded-lg border border-border bg-muted p-4 text-xs leading-6 text-foreground">
       <code>{JSON.stringify(value, null, 2)}</code>
     </pre>
   )
@@ -213,21 +213,21 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="rounded-3xl border border-orange-500/20 bg-card/75 p-6 shadow-2xl shadow-orange-950/10 backdrop-blur">
-        <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-orange-300">
+      <section className="panel p-6">
+        <div className="eyebrow inline-flex items-center gap-2">
           <Router className="size-3.5" />
           Settings
         </div>
-        <h1 className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl">Devices & Secure API Keys</h1>
+        <h1 className="mt-5 text-2xl font-semibold tracking-tight sm:text-3xl">Devices & Secure API Keys</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
           Provision QR scanners and Tab5 attendance displays with separate identities, one-time API keys, and immediate access controls.
         </p>
       </section>
 
       {error ? (
-        <Card className="border-red-500/25 bg-red-500/5">
+        <Card className="border-offline-border bg-offline-surface">
           <CardHeader className="flex flex-row items-center gap-3 space-y-0">
-            <AlertCircle className="size-5 text-red-300" />
+            <AlertCircle className="size-5 text-offline" />
             <div>
               <CardTitle>Action required</CardTitle>
               <CardDescription>{error}</CardDescription>
@@ -240,20 +240,20 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         <Card>
           <CardHeader>
             <CardDescription>Registered devices</CardDescription>
-            <CardTitle className="font-mono text-3xl">{devices.length}</CardTitle>
+            <CardTitle className="telemetry-value">{devices.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>Enabled devices</CardDescription>
-            <CardTitle className="font-mono text-3xl">{enabledCount}</CardTitle>
+            <CardTitle className="telemetry-value">{enabledCount}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>Receiver status</CardDescription>
             <CardTitle className="flex items-center gap-2 text-lg">
-              <CheckCircle2 className="size-5 text-emerald-400" />
+              <CheckCircle2 className="size-5 text-active" />
               Secured
             </CardTitle>
           </CardHeader>
@@ -264,7 +264,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <KeyRound className="size-5 text-orange-300" />
+              <KeyRound className="size-5 text-brand" />
               <CardTitle>Add Device</CardTitle>
             </div>
              <CardDescription>Provision a unique device ID, optional MAC lock, and one-time API key.</CardDescription>
@@ -298,7 +298,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
               <KeyRound className="size-4" />
               Generate API Key
             </Button>
-            <div className="rounded-2xl border border-border bg-muted/35 p-4 text-xs leading-5 text-muted-foreground">
+            <div className="rounded-lg border border-border bg-muted p-4 text-xs leading-5 text-muted-foreground">
               {deviceKind === "TAB5_DISPLAY" ? (
                 <>Provision the raw key once over USB into encrypted device storage. The Tab5 sends it as a bearer token and never displays it again.</>
               ) : (
@@ -309,29 +309,29 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         </Card>
 
         {generated ? (
-          <Card className="border-orange-500/30 bg-orange-500/5">
+          <Card className="border-border bg-muted">
             <CardHeader>
               <div className="flex items-center gap-2">
-                <ShieldAlert className="size-5 text-orange-300" />
+                <ShieldAlert className="size-5 text-brand" />
                 <CardTitle>Generated API Key</CardTitle>
               </div>
               <CardDescription>This raw key is shown only now. Copy it before leaving this page.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-border bg-background/55 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Device ID</p>
-                  <p className="mt-1 font-mono text-lg font-semibold text-orange-300">{generated.deviceNumber}</p>
+                <div className="rounded-lg border border-border bg-muted p-4">
+                  <p className="text-[0.78rem] text-muted-foreground">Device ID</p>
+                  <p className="mt-1 font-mono text-lg font-semibold text-brand">{generated.deviceNumber}</p>
                 </div>
-                <div className="rounded-2xl border border-border bg-background/55 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Device name</p>
+                <div className="rounded-lg border border-border bg-muted p-4">
+                  <p className="text-[0.78rem] text-muted-foreground">Device name</p>
                  <p className="mt-1 text-sm font-semibold">{generated.deviceName}</p>
                 </div>
               </div>
               <Badge variant="outline">{generated.deviceKind === "TAB5_DISPLAY" ? "Tab5 display" : "QR scanner"}</Badge>
-              <div className="rounded-2xl border border-border bg-background/55 p-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">API_KEY</p>
-                <p className="mt-2 break-all font-mono text-sm text-orange-200">{generated.apiKey}</p>
+              <div className="rounded-lg border border-border bg-muted p-4">
+                <p className="text-[0.78rem] text-muted-foreground">API_KEY</p>
+                <p className="mt-2 break-all font-mono text-sm text-brand">{generated.apiKey}</p>
               </div>
               <Button variant="outline" onClick={() => void copyText(generated.apiKey)}>
                 <Copy className="size-4" />
@@ -346,7 +346,7 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Database className="size-5 text-orange-300" />
+              <Database className="size-5 text-brand" />
               <CardTitle>Registered Devices</CardTitle>
             </div>
             <CardDescription>Each device has its own ID, API key, and optional locked MAC address.</CardDescription>
@@ -354,11 +354,11 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
           </CardHeader>
           <CardContent>
             {devices.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No devices registered yet.</div>
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No devices registered yet.</div>
             ) : (
               <div className="space-y-3">
                 {devices.map((device) => (
-                  <div key={device.id} className="rounded-2xl border border-border bg-background/55 p-4">
+                  <div key={device.id} className="rounded-lg border border-border bg-muted p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="font-semibold">{device.name}</p>
@@ -378,25 +378,25 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
                       <Badge variant="outline">Key {device.apiKeyPreview ?? "not generated"}</Badge>
                       <Badge variant="outline">Created {formatDate(device.apiKeyCreatedAt)}</Badge>
                       <Badge variant="outline">Last used {formatDate(device.apiKeyLastUsedAt)}</Badge>
-                      <Badge variant={device.enabled ? "default" : "destructive"}>{device.enabled ? "Enabled" : "Disabled"}</Badge>
+                      <Badge variant={device.enabled ? "active" : "offline"}>{device.enabled ? "Enabled" : "Disabled"}</Badge>
                       <Badge variant="outline">{device.deviceKind === "TAB5_DISPLAY" ? "Tab5 display" : "QR scanner"}</Badge>
-                      <Badge variant={device.macAddress ? "default" : "outline"}>{device.macAddress ? "MAC locked" : "MAC pending"}</Badge>
+                      <Badge variant={device.macAddress ? "active" : "warning"}>{device.macAddress ? "MAC locked" : "MAC pending"}</Badge>
                     </div>
-                    <div className="mt-3 grid gap-2 rounded-xl border border-border bg-muted/25 p-3 text-xs text-muted-foreground sm:grid-cols-4">
+                    <div className="mt-3 grid gap-2 rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground sm:grid-cols-4">
                       <div>
-                        <p className="uppercase tracking-[0.16em]">WiFi MAC</p>
+                        <p className="text-[0.78rem]">WiFi MAC</p>
                         <p className="mt-1 font-mono text-foreground">{device.macAddress ?? "Waiting for device"}</p>
                       </div>
                       <div>
-                        <p className="uppercase tracking-[0.16em]">Locked</p>
+                        <p className="text-[0.78rem]">Locked</p>
                         <p className="mt-1 text-foreground">{formatDate(device.macAddressLockedAt)}</p>
                       </div>
                       <div>
-                        <p className="uppercase tracking-[0.16em]">Last online</p>
+                        <p className="text-[0.78rem]">Last online</p>
                         <p className="mt-1 text-foreground">{formatDate(device.lastHeartbeatAt ?? device.lastSeenAt)}</p>
                       </div>
                       <div>
-                        <p className="uppercase tracking-[0.16em]">API version</p>
+                        <p className="text-[0.78rem]">API version</p>
                         <p className="mt-1 text-foreground">v{device.apiVersion}</p>
                       </div>
                     </div>
@@ -410,27 +410,27 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Cpu className="size-5 text-orange-300" />
+              <Cpu className="size-5 text-brand" />
               <CardTitle>Current Devices</CardTitle>
             </div>
             <CardDescription>Devices detected from recent QR biometric scans.</CardDescription>
           </CardHeader>
           <CardContent>
             {initialData.observedDevices.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 No current devices detected yet. Send a secured scan to <span className="font-mono text-foreground">/api/qr-biometric-icc</span> to see a device here.
               </div>
             ) : (
               <div className="space-y-3">
                 {initialData.observedDevices.map((device) => (
-                  <div key={device.deviceId} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-background/55 p-4">
+                  <div key={device.deviceId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted p-4">
                     <div>
                       <p className="font-mono text-sm font-semibold">{device.deviceId}</p>
                       <p className="mt-1 text-xs text-muted-foreground">Last seen {formatDate(device.lastSeen)}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline">{device.totalScans} scans</Badge>
-                      <Badge className="bg-orange-500 text-black hover:bg-orange-500">{device.latestState}</Badge>
+                      <Badge variant="neutral">{device.latestState}</Badge>
                     </div>
                   </div>
                 ))}
@@ -443,19 +443,19 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Router className="size-5 text-orange-300" />
+            <Router className="size-5 text-brand" />
             <CardTitle>Tab5 Device API</CardTitle>
           </div>
           <CardDescription>Dedicated bearer-authenticated endpoints for attendance displays. Browser session cookies are not accepted.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <div className="rounded-2xl border border-border bg-muted/35 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Cursor feed</p>
-            <p className="mt-1 break-all font-mono text-orange-300">{DEVICE_FEED_ENDPOINT}</p>
+          <div className="rounded-lg border border-border bg-muted p-4">
+            <p className="text-[0.78rem] text-muted-foreground">Cursor feed</p>
+            <p className="mt-1 break-all font-mono text-brand">{DEVICE_FEED_ENDPOINT}</p>
           </div>
-          <div className="rounded-2xl border border-border bg-muted/35 p-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Manual attendance batch</p>
-            <p className="mt-1 break-all font-mono text-orange-300">{DEVICE_MANUAL_ENDPOINT}</p>
+          <div className="rounded-lg border border-border bg-muted p-4">
+            <p className="text-[0.78rem] text-muted-foreground">Manual attendance batch</p>
+            <p className="mt-1 break-all font-mono text-brand">{DEVICE_MANUAL_ENDPOINT}</p>
           </div>
           <p className="text-xs leading-5 text-muted-foreground">
             Send <span className="font-mono text-foreground">Authorization: Bearer &lt;key&gt;</span> and <span className="font-mono text-foreground">X-Device-Id: TAB5-...</span>. Keep the generated key in encrypted NVS, never on the SD card or in source control.
@@ -467,22 +467,22 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Router className="size-5 text-orange-300" />
+              <Router className="size-5 text-brand" />
               <CardTitle>Receiver API Endpoint</CardTitle>
             </div>
             <CardDescription>Use this endpoint from the QR biometric hardware.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
-            <div className="rounded-2xl border border-border bg-muted/35 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Dashboard URL</p>
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="text-[0.78rem] text-muted-foreground">Dashboard URL</p>
               <p className="mt-1 break-all font-mono text-sm">{DASHBOARD_URL}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-muted/35 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Endpoint</p>
-              <p className="mt-1 break-all font-mono text-sm text-orange-300">{API_ENDPOINT}</p>
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="text-[0.78rem] text-muted-foreground">Endpoint</p>
+              <p className="mt-1 break-all font-mono text-sm text-brand">{API_ENDPOINT}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-muted/35 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Headers</p>
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="text-[0.78rem] text-muted-foreground">Headers</p>
               <p className="mt-1 font-mono text-sm">Content-Type: application/json</p>
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
@@ -494,26 +494,26 @@ export function AdminDeviceSettings({ initialData }: { initialData: SettingsData
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Code2 className="size-5 text-orange-300" />
+              <Code2 className="size-5 text-brand" />
               <CardTitle>JSON Format Information</CardTitle>
             </div>
             <CardDescription>Payload and response examples for secure device integration.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Online MAC registration</p>
+              <p className="mb-2 text-[0.78rem] font-semibold text-muted-foreground">Online MAC registration</p>
               <JsonBlock value={onlinePayload} />
             </div>
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Request body</p>
+              <p className="mb-2 text-[0.78rem] font-semibold text-muted-foreground">Request body</p>
               <JsonBlock value={postPayload} />
             </div>
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Success response</p>
+              <p className="mb-2 text-[0.78rem] font-semibold text-muted-foreground">Success response</p>
               <JsonBlock value={successResponse} />
             </div>
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Invalid key response</p>
+              <p className="mb-2 text-[0.78rem] font-semibold text-muted-foreground">Invalid key response</p>
               <JsonBlock value={invalidKeyResponse} />
             </div>
           </CardContent>

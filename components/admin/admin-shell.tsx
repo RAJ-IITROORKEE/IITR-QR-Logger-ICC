@@ -91,7 +91,12 @@ function SidebarLink({ item }: { item: NavItem }) {
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={isActivePath(pathname, item.href)} tooltip={item.label}>
+      <SidebarMenuButton
+        asChild
+        isActive={isActivePath(pathname, item.href)}
+        tooltip={item.label}
+        className="data-[active=true]:shadow-[inset_2px_0_0_var(--brand)] data-[active=true]:[&>svg]:text-brand"
+      >
         <Link href={item.href}>
           <Icon />
           <span>{item.label}</span>
@@ -118,7 +123,7 @@ function AdminUserMenu() {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               <Avatar className="size-8 rounded-lg">
-                <AvatarFallback className="rounded-lg bg-orange-500 text-xs font-bold text-black">AD</AvatarFallback>
+                <AvatarFallback className="rounded-lg bg-primary text-xs font-bold text-primary-foreground">AD</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">Admin</span>
@@ -136,7 +141,7 @@ function AdminUserMenu() {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-sm">
                 <Avatar className="size-8 rounded-lg">
-                  <AvatarFallback className="rounded-lg bg-orange-500 text-xs font-bold text-black">AD</AvatarFallback>
+                  <AvatarFallback className="rounded-lg bg-primary text-xs font-bold text-primary-foreground">AD</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">Admin</span>
@@ -209,8 +214,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AdminAppSidebar />
-      <SidebarInset className="mobile-no-blur bg-background/80 md:bg-background/70 md:backdrop-blur-sm">
-        <header className="mobile-no-blur sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 transition-[width,height] ease-linear md:bg-background/85 md:backdrop-blur group-has-data-[collapsible=icon]/sidebar-wrapper:h-14">
+      <SidebarInset className="bg-background">
+        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/90 backdrop-blur transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-14">
           <div className="flex flex-1 items-center gap-2 px-4 lg:px-6">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
@@ -239,14 +244,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
         <main className="flex flex-1 flex-col gap-4 p-4 pt-4 lg:p-6">
-          <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">{children}</div>
+          <div className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-4">{children}</div>
         </main>
-        <footer className="mobile-no-blur border-t bg-background/90 px-4 py-3 text-xs text-muted-foreground md:bg-background/70 md:backdrop-blur">
-          <div className="mx-auto grid w-full max-w-7xl items-center gap-3 text-center sm:grid-cols-[1fr_auto_1fr]">
+        <footer className="border-t bg-background px-4 py-3 text-xs text-muted-foreground">
+          <div className="mx-auto grid w-full max-w-[1320px] items-center gap-3 text-center sm:grid-cols-[1fr_auto_1fr]">
             <span className="hidden sm:block" />
             <p className="justify-self-center">
               All Rights Reserved | Developed by{" "}
-              <Link href="https://rajrabidas.me" target="_blank" rel="noreferrer" className="transition-colors hover:text-primary">
+              <Link href="https://rajrabidas.me" target="_blank" rel="noreferrer" className="transition-colors hover:text-brand">
                 Raj Rabidas
               </Link>{" "}
               | PowerGrid Centre of Excellence | IIT Roorkee

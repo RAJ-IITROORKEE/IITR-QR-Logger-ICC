@@ -20,12 +20,12 @@ type StudentSortKey = "displayName" | "enrollmentNo" | "latestState" | "totalLog
 const STUDENT_PAGE_SIZE = 10
 const timelineChartConfig = {
   total: { label: "Total", color: "var(--chart-1)" },
-  inCount: { label: "IN", color: "var(--chart-2)" },
+  inCount: { label: "IN", color: "var(--chart-4)" },
   outCount: { label: "OUT", color: "var(--chart-5)" },
 } satisfies ChartConfig
 
 const studentActivityChartConfig = {
-  inCount: { label: "IN", color: "var(--chart-2)" },
+  inCount: { label: "IN", color: "var(--chart-4)" },
   outCount: { label: "OUT", color: "var(--chart-5)" },
 } satisfies ChartConfig
 
@@ -124,9 +124,9 @@ function exportHref(month: string, from: string, to: string) {
 
 function StatCard({ label, value, caption }: { label: string; value: number | string; caption: string }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-border bg-card/75 p-5">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-2 break-words font-mono text-3xl font-semibold text-orange-100">{value}</p>
+    <div className="min-w-0 panel p-5">
+      <p className="text-[0.78rem] text-muted-foreground">{label}</p>
+      <p className="mt-2 break-words telemetry-value">{value}</p>
       <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
     </div>
   )
@@ -156,7 +156,7 @@ function compareStudentValues(a: QrBiometricStudentSummary, b: QrBiometricStuden
 
 function StudentSortButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-orange-500/10 hover:text-orange-300 ${active ? "text-orange-300" : ""}`}>
+    <button type="button" onClick={onClick} className={`inline-flex items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-accent hover:text-foreground ${active ? "text-brand" : ""}`}>
       {children}
       <ArrowUpDown className="size-3" />
     </button>
@@ -169,7 +169,7 @@ function AnalyticsTimelineChart({ timeline }: { timeline: QrBiometricApiResponse
   if (chartData.length === 0) return <p className="text-sm text-muted-foreground">No timeline data yet.</p>
 
   return (
-    <div className="mt-4 rounded-2xl border border-orange-500/15 bg-background/55 p-3">
+    <div className="mt-4 rounded-lg border border-border bg-muted p-3">
       <ChartContainer config={timelineChartConfig} className="h-[210px] w-full aspect-auto" initialDimension={{ width: 520, height: 210 }}>
         <AreaChart data={chartData} margin={{ left: -18, right: 8, top: 12, bottom: 0 }}>
           <defs>
@@ -188,9 +188,9 @@ function AnalyticsTimelineChart({ timeline }: { timeline: QrBiometricApiResponse
         </AreaChart>
       </ChartContainer>
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-        <span className="rounded-lg bg-orange-500/10 px-2 py-1 text-orange-200">Total: {timeline.reduce((sum, item) => sum + item.total, 0)}</span>
-        <span className="rounded-lg bg-emerald-500/10 px-2 py-1 text-emerald-300">IN: {timeline.reduce((sum, item) => sum + item.inCount, 0)}</span>
-        <span className="rounded-lg bg-red-500/10 px-2 py-1 text-red-300">OUT: {timeline.reduce((sum, item) => sum + item.outCount, 0)}</span>
+        <span className="rounded-md border border-border bg-card px-2 py-1 text-brand">Total: {timeline.reduce((sum, item) => sum + item.total, 0)}</span>
+        <span className="rounded-md border border-active-border bg-active-surface px-2 py-1 text-active">IN: {timeline.reduce((sum, item) => sum + item.inCount, 0)}</span>
+        <span className="rounded-md border border-offline-border bg-offline-surface px-2 py-1 text-offline">OUT: {timeline.reduce((sum, item) => sum + item.outCount, 0)}</span>
       </div>
     </div>
   )
@@ -209,12 +209,12 @@ function StudentActivityDialog({ student }: { student: QrBiometricStudentSummary
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="border-orange-500/30 bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 hover:text-orange-400">
+        <Button size="sm" variant="outline">
           <LineChart className="size-3.5" />
           View logs
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-5xl border-orange-500/30 bg-card">
+      <DialogContent className="max-w-5xl border-border bg-card">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
             Student Timeline Activity
@@ -222,7 +222,7 @@ function StudentActivityDialog({ student }: { student: QrBiometricStudentSummary
           </DialogTitle>
           <DialogDescription>{student.displayName} has {student.totalLogs} logs from {formatDate(student.firstSeenAt)} to {formatDate(student.lastSeenAt)}.</DialogDescription>
         </DialogHeader>
-        <div className="rounded-2xl border border-orange-500/15 bg-background/60 p-3">
+        <div className="rounded-lg border border-border bg-muted p-3">
           <ChartContainer config={studentActivityChartConfig} className="h-[240px] w-full aspect-auto" initialDimension={{ width: 720, height: 240 }}>
             <BarChart data={chartData} margin={{ left: -18, right: 8, top: 10, bottom: 0 }}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -236,7 +236,7 @@ function StudentActivityDialog({ student }: { student: QrBiometricStudentSummary
         </div>
         <div className="max-h-[280px] space-y-2 overflow-y-auto pr-1">
           {student.logs.map((log) => (
-            <div key={log.id} className="grid gap-2 rounded-xl border border-border bg-background/65 p-3 text-sm sm:grid-cols-[auto_1fr_auto] sm:items-center">
+            <div key={log.id} className="grid gap-2 rounded-lg border border-border bg-muted p-3 text-sm sm:grid-cols-[auto_1fr_auto] sm:items-center">
               <QrEntryStateBadge state={log.entryState} />
               <div className="min-w-0">
                 <p className="font-mono text-xs text-muted-foreground">{formatDate(log.timestamp)}</p>
@@ -260,7 +260,7 @@ function StudentDetailsDialog({ student }: { student: QrBiometricStudentSummary 
           View details
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-6xl border-orange-500/30 bg-card">
+      <DialogContent className="max-w-6xl border-border bg-card">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
             Registered Student Details
@@ -269,20 +269,20 @@ function StudentDetailsDialog({ student }: { student: QrBiometricStudentSummary 
           <DialogDescription>Latest known profile, entry state, device, QR payload, and scan totals for this student.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-4">
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Logs</p>
+          <div className="rounded-lg border border-border bg-muted p-3">
+            <p className="text-[0.78rem] text-muted-foreground">Logs</p>
             <p className="mt-1 font-mono text-lg font-semibold text-foreground">{student.totalLogs}</p>
           </div>
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">IN / OUT</p>
+          <div className="rounded-lg border border-border bg-muted p-3">
+            <p className="text-[0.78rem] text-muted-foreground">IN / OUT</p>
             <p className="mt-1 font-mono text-lg font-semibold text-foreground">{student.inCount} / {student.outCount}</p>
           </div>
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Last Device</p>
+          <div className="rounded-lg border border-border bg-muted p-3">
+            <p className="text-[0.78rem] text-muted-foreground">Last Device</p>
             <p className="mt-1 break-all font-mono text-xs font-semibold text-foreground">{student.latestReading.deviceId}</p>
           </div>
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Last Seen</p>
+          <div className="rounded-lg border border-border bg-muted p-3">
+            <p className="text-[0.78rem] text-muted-foreground">Last Seen</p>
             <p className="mt-1 font-mono text-xs font-semibold text-foreground">{formatDate(student.lastSeenAt)}</p>
           </div>
         </div>
@@ -321,20 +321,20 @@ function StudentRegistryTable({ students }: { students: QrBiometricStudentSummar
   }
 
   return (
-    <section className="rounded-3xl border border-border bg-card/75">
+    <section className="panel">
       <div className="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="flex items-center gap-3"><Users className="h-5 w-5 text-orange-300" /><h3 className="text-lg font-semibold">Registered Students</h3></div>
+          <div className="flex items-center gap-3"><Users className="h-5 w-5 text-brand" /><h3 className="text-lg font-semibold">Registered Students</h3></div>
           <p className="mt-1 text-xs text-muted-foreground">Unique students derived from saved QR scan history. Search, sort, and view full activity.</p>
         </div>
         <label className="relative w-full lg:w-80">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Search name, enrollment, email" className="w-full rounded-xl border border-border bg-background/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Search name, enrollment, email" className="w-full h-9 rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40" />
         </label>
       </div>
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/30 text-xs uppercase tracking-[0.14em] text-muted-foreground hover:bg-muted/30">
+          <TableRow className="bg-muted text-[0.85rem] font-semibold text-muted-foreground hover:bg-muted">
             <TableHead><StudentSortButton active={sortKey === "latestState"} onClick={() => setSort("latestState")}>State</StudentSortButton></TableHead>
             <TableHead><StudentSortButton active={sortKey === "displayName"} onClick={() => setSort("displayName")}>Student</StudentSortButton></TableHead>
             <TableHead><StudentSortButton active={sortKey === "enrollmentNo"} onClick={() => setSort("enrollmentNo")}>Enrollment</StudentSortButton></TableHead>
@@ -538,11 +538,11 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-orange-500/20 bg-card/75 p-5 shadow-2xl shadow-orange-950/20">
+      <section className="panel p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-orange-300">{title}</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">ICC QR biometric operations</h2>
+            <p className="eyebrow">{title}</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">ICC QR biometric operations</h2>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Monitor live scans, student entry state, daily/monthly totals, searchable logs, and exportable timelines.</p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -566,9 +566,9 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
         </div>
       </section>
 
-      {actionMessage ? <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{actionMessage}</p> : null}
-      {actionError ? <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{actionError}</p> : null}
-      {fetchError ? <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">Dashboard data unavailable: {fetchError}{hasLoadedData ? " Showing the last successful update." : " Statistics are not available yet."}</p> : null}
+      {actionMessage ? <p className="rounded-lg border border-active-border bg-active-surface px-4 py-3 text-sm text-active">{actionMessage}</p> : null}
+      {actionError ? <p className="rounded-lg border border-offline-border bg-offline-surface px-4 py-3 text-sm text-offline">{actionError}</p> : null}
+      {fetchError ? <p role="alert" className="rounded-lg border border-offline-border bg-offline-surface px-4 py-3 text-sm text-offline">Dashboard data unavailable: {fetchError}{hasLoadedData ? " Showing the last successful update." : " Statistics are not available yet."}</p> : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Daily Logs" value={hasLoadedData ? (data.stats.dailyScans ?? 0) : "--"} caption="Scans captured today (Asia/Kolkata)" />
@@ -578,16 +578,16 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-border bg-card/75 p-5">
+        <div className="panel p-5">
           <div className="flex items-center gap-3">
-            <Activity className="h-5 w-5 text-orange-300" />
+            <Activity className="h-5 w-5 text-brand" />
             <div>
               <h3 className="font-semibold">Latest Scan</h3>
               <p className="text-xs text-muted-foreground">Device health: {data.health.status.toUpperCase()}</p>
             </div>
           </div>
           {data.latest ? (
-            <div className="mt-5 rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4">
+            <div className="mt-5 rounded-lg border border-border bg-muted p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -605,13 +605,13 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
               </div>
             </div>
           ) : (
-            <p className="mt-5 rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">No scan received yet.</p>
+            <p className="mt-5 rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">No scan received yet.</p>
           )}
         </div>
 
-        <div className="rounded-2xl border border-border bg-card/75 p-5">
+        <div className="panel p-5">
           <div className="flex items-center gap-3">
-            <Database className="h-5 w-5 text-orange-300" />
+            <Database className="h-5 w-5 text-brand" />
             <div>
               <h3 className="font-semibold">System State</h3>
               <p className="text-xs text-muted-foreground">Live buffer and persistence queue</p>
@@ -626,7 +626,7 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
       </section>
 
       {(mode === "logs" || mode === "dashboard") && (
-        <section className="rounded-3xl border border-border bg-card/75">
+        <section className="panel">
           <div className="flex flex-col gap-3 border-b border-border p-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h3 className="text-lg font-semibold">Logged Students</h3>
@@ -635,18 +635,18 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:justify-end">
               <label className="relative w-full sm:w-72">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setLoading(true); void fetchData() } }} placeholder="Search student, device, QR" className="w-full rounded-xl border border-border bg-background/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setLoading(true); void fetchData() } }} placeholder="Search student, device, QR" className="w-full h-9 rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40" />
               </label>
-              <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1) }} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto" />
-              <input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1) }} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto" />
-              <input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1) }} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto" />
-              <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto">
+              <input type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1) }} className="w-full h-9 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 xl:w-auto" />
+              <input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPage(1) }} className="w-full h-9 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 xl:w-auto" />
+              <input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPage(1) }} className="w-full h-9 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 xl:w-auto" />
+              <select value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="w-full h-9 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 xl:w-auto">
                 <option value="createdAt">Time</option>
                 <option value="deviceId">Device</option>
                 <option value="entryState">State</option>
                 <option value="scanStatus">Status</option>
               </select>
-              <select value={order} onChange={(event) => setOrder(event.target.value as SortOrder)} className="w-full rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500 xl:w-auto">
+              <select value={order} onChange={(event) => setOrder(event.target.value as SortOrder)} className="w-full h-9 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 xl:w-auto">
                 <option value="desc">Desc</option>
                 <option value="asc">Asc</option>
               </select>
@@ -656,19 +656,19 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/30 text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  <th className="px-4 py-3 text-left font-medium">State</th>
-                  <th className="px-4 py-3 text-left font-medium">Student</th>
-                  <th className="px-4 py-3 text-left font-medium">Device</th>
-                  <th className="px-4 py-3 text-left font-medium">Time</th>
-                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                <tr className="border-b border-border bg-muted text-[0.85rem] font-semibold text-muted-foreground">
+                  <th className="px-4 py-3 text-left">State</th>
+                  <th className="px-4 py-3 text-left">Student</th>
+                  <th className="px-4 py-3 text-left">Device</th>
+                  <th className="px-4 py-3 text-left">Time</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {data.readings.length === 0 ? (
                   <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No logs found.</td></tr>
                 ) : data.readings.map((reading) => (
-                  <tr key={reading.id} className="border-b border-border/60 hover:bg-muted/20">
+                  <tr key={reading.id} className="border-b border-border hover:bg-muted/60">
                     <td className="px-4 py-3"><QrEntryStateBadge state={reading.entryState} /></td>
                     <td className="max-w-[460px] px-4 py-3"><AdminStudentSummary reading={reading} /></td>
                     <td className="px-4 py-3 font-mono text-xs">{reading.deviceId}</td>
@@ -697,26 +697,26 @@ export function QrAdminConsole({ mode }: { mode: Mode }) {
       {mode === "analytics" && (
         <>
           <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-            <div className="rounded-3xl border border-border bg-card/75 p-5">
-              <div className="flex items-center gap-3"><BarChart3 className="h-5 w-5 text-orange-300" /><h3 className="font-semibold">Device Distribution</h3></div>
+            <div className="panel p-5">
+              <div className="flex items-center gap-3"><BarChart3 className="h-5 w-5 text-brand" /><h3 className="font-semibold">Device Distribution</h3></div>
               <div className="mt-5 space-y-3">
                 {data.analysis.deviceSummaries.length === 0 ? <p className="text-sm text-muted-foreground">No device data yet.</p> : data.analysis.deviceSummaries.map((device) => (
-                  <div key={device.deviceId} className="rounded-xl border border-border bg-background/45 p-3 transition-colors hover:border-orange-500/30 hover:bg-orange-500/5">
+                  <div key={device.deviceId} className="rounded-lg border border-border bg-muted p-3 transition-colors hover:border-input">
                     <div className="mb-2 flex justify-between gap-3 text-xs"><span className="break-all font-mono">{device.deviceId}</span><span className="shrink-0">{device.totalScans} scans</span></div>
-                    <div className="h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-orange-500 transition-all duration-700" style={{ width: `${Math.min(100, (device.totalScans / Math.max(1, data.stats.totalScans)) * 100)}%` }} /></div>
+                    <div className="h-2 rounded-full bg-border"><div className="h-2 rounded-full bg-[var(--chart-1)] transition-all duration-700" style={{ width: `${Math.min(100, (device.totalScans / Math.max(1, data.stats.totalScans)) * 100)}%` }} /></div>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="rounded-3xl border border-border bg-card/75 p-5">
+            <div className="panel p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-orange-300" /><h3 className="font-semibold">Entry Timeline</h3></div>
-                <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs text-orange-200">Last {data.analysis.entryTimeline.length || 0} days</span>
+                <div className="flex items-center gap-3"><CalendarDays className="h-5 w-5 text-brand" /><h3 className="font-semibold">Entry Timeline</h3></div>
+                <span className="rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">Last {data.analysis.entryTimeline.length || 0} days</span>
               </div>
               <AnalyticsTimelineChart timeline={data.analysis.entryTimeline} />
             </div>
-            <div className="rounded-3xl border border-border bg-card/75 p-5 xl:col-span-2">
-              <div className="flex items-center gap-3"><Users className="h-5 w-5 text-orange-300" /><h3 className="font-semibold">Entry Summary</h3></div>
+            <div className="panel p-5 xl:col-span-2">
+              <div className="flex items-center gap-3"><Users className="h-5 w-5 text-brand" /><h3 className="font-semibold">Entry Summary</h3></div>
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
                 <StatCard label="Total Scans" value={data.stats.totalScans} caption="All matching filters" />
                 <StatCard label="Unique Students" value={data.analysis.studentSummaries.length} caption="Registered student rows" />

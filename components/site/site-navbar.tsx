@@ -1,43 +1,82 @@
-import Image from "next/image"
+"use client"
+
 import Link from "next/link"
+import { useState } from "react"
 import { LockKeyhole } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import { SessionLogoutButton } from "@/components/site/session-logout-button"
+import { Button } from "@/components/ui/button"
+import {
+  MobileNav,
+  MobileNavHeader,
+  MobileNavMenu,
+  MobileNavToggle,
+  NavBody,
+  NavItems,
+  Navbar,
+  NavbarLogo,
+} from "@/components/ui/resizable-navbar"
+
+const publicItems = [
+  { name: "How it works", link: "/#how" },
+  { name: "Features", link: "/#features" },
+  { name: "About", link: "/about" },
+  { name: "Support", link: "/support" },
+]
+
+const signedInItems = [
+  { name: "Dashboard", link: "/" },
+  { name: "About", link: "/about" },
+  { name: "Support", link: "/support" },
+]
 
 export function SiteNavbar({ authenticated = false }: { authenticated?: boolean }) {
-  return (
-    <header className="mobile-no-blur sticky top-0 z-50 border-b border-border/70 bg-background/95 md:bg-background/85 md:backdrop-blur-xl">
-      <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="inline-flex items-center gap-2 rounded-xl px-1 py-1 transition hover:bg-muted/40">
-          <span className="flex size-10 items-center justify-center">
-            <Image src="/logo.png" alt="QR LOGGER ICC logo" width={40} height={40} className="size-10 object-contain" priority />
-          </span>
-          <span className="leading-tight">
-            <span className="block text-sm font-semibold tracking-tight sm:text-base">QR LOGGER ICC</span>
-            <span className="hidden text-[10px] uppercase tracking-[0.22em] text-muted-foreground sm:block">ICC IIT Roorkee</span>
-          </span>
-        </Link>
+  const [open, setOpen] = useState(false)
+  const items = authenticated ? signedInItems : publicItems
 
-        <nav className="flex items-center gap-1 sm:gap-2">
-          <Link href="/about" className="rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted/50 hover:text-foreground sm:text-sm">
-            About
-          </Link>
-          <Link href="/support" className="rounded-lg px-2.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted/50 hover:text-foreground sm:text-sm">
-            Support
-          </Link>
-          {authenticated ? (
-            <SessionLogoutButton />
-          ) : (
-            <Button asChild size="sm" className="ml-1 h-9 bg-orange-500 text-black hover:bg-orange-400">
-              <Link href="/admin/login" className="inline-flex items-center gap-1.5">
-                Admin
-                <LockKeyhole className="h-3.5 w-3.5" />
-              </Link>
-            </Button>
-          )}
-        </nav>
-      </div>
-    </header>
+  const actions = authenticated ? (
+    <SessionLogoutButton />
+  ) : (
+    <>
+      <Button asChild variant="outline" size="sm" className="min-h-9">
+        <Link href="/#login">Staff login</Link>
+      </Button>
+      <Button asChild size="sm" className="min-h-9">
+        <Link href="/admin/login">
+          Admin
+          <LockKeyhole className="size-3.5" aria-hidden="true" />
+        </Link>
+      </Button>
+    </>
+  )
+
+  return (
+    <Navbar>
+      <NavBody>
+        <NavbarLogo />
+        <NavItems items={items} />
+        <div className="relative z-20 flex items-center gap-2">{actions}</div>
+      </NavBody>
+
+      <MobileNav>
+        <MobileNavHeader>
+          <NavbarLogo />
+          <MobileNavToggle isOpen={open} onClick={() => setOpen((current) => !current)} />
+        </MobileNavHeader>
+        <MobileNavMenu isOpen={open} onClose={() => setOpen(false)}>
+          {items.map((item) => (
+            <Link
+              key={item.link}
+              href={item.link}
+              onClick={() => setOpen(false)}
+              className="rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              {item.name}
+            </Link>
+          ))}
+          <div className="mt-2 flex flex-wrap gap-2 border-t border-border pt-3">{actions}</div>
+        </MobileNavMenu>
+      </MobileNav>
+    </Navbar>
   )
 }

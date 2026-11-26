@@ -116,19 +116,19 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="rounded-3xl border border-orange-500/20 bg-card/75 p-6 shadow-2xl shadow-orange-950/10 backdrop-blur">
-        <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-orange-300">
+      <section className="panel p-6">
+        <div className="eyebrow inline-flex items-center gap-2">
           <ShieldCheck className="size-3.5" />
           Access Control
         </div>
-        <h1 className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl">Staff & Professor Access</h1>
+        <h1 className="mt-5 text-2xl font-semibold tracking-tight sm:text-3xl">Staff & Professor Access</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Create and update dashboard login accounts. These credentials are required before anyone can view the live QR logger at the public URL.</p>
       </section>
 
       {error ? (
-        <Card className="border-red-500/25 bg-red-500/5">
+        <Card className="border-offline-border bg-offline-surface">
           <CardHeader className="flex flex-row items-center gap-3 space-y-0">
-            <AlertCircle className="size-5 text-red-300" />
+            <AlertCircle className="size-5 text-offline" />
             <div>
               <CardTitle>Action required</CardTitle>
               <CardDescription>{error}</CardDescription>
@@ -138,9 +138,9 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
       ) : null}
 
       {success ? (
-        <Card className="border-emerald-500/25 bg-emerald-500/5">
+        <Card className="border-active-border bg-active-surface">
           <CardHeader className="flex flex-row items-center gap-3 space-y-0">
-            <CheckCircle2 className="size-5 text-emerald-300" />
+            <CheckCircle2 className="size-5 text-active" />
             <div>
               <CardTitle>Saved</CardTitle>
               <CardDescription>{success}</CardDescription>
@@ -174,7 +174,7 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <UserPlus className="size-5 text-orange-300" />
+              <UserPlus className="size-5 text-brand" />
               <CardTitle>Create Access Point</CardTitle>
             </div>
             <CardDescription>Add a staff, professor, or super admin credential for dashboard login.</CardDescription>
@@ -208,13 +208,13 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
                     type="button"
                     onClick={() => setShowCreatePassword((current) => !current)}
                     aria-label={showCreatePassword ? "Hide password" : "Show password"}
-                    className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-orange-500/10 hover:text-orange-300"
+                    className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground"
                   >
                     {showCreatePassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </div>
               </div>
-              <Button disabled={pending} className="bg-orange-500 text-black hover:bg-orange-400">
+              <Button disabled={pending}>
                 <KeyRound className="size-4" />
                 Create Access
               </Button>
@@ -225,17 +225,17 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <UsersRound className="size-5 text-orange-300" />
+              <UsersRound className="size-5 text-brand" />
               <CardTitle>Access Accounts</CardTitle>
             </div>
             <CardDescription>Update role, name, username, or password. Leave password blank while editing to keep the current password.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {accounts.length === 0 ? (
-              <div className="rounded-2xl border border-border bg-muted/35 p-6 text-center text-sm text-muted-foreground">No access accounts found.</div>
+              <div className="rounded-lg border border-border bg-muted p-6 text-center text-sm text-muted-foreground">No access accounts found.</div>
             ) : (
               accounts.map((account) => (
-                <div key={account.id} className="rounded-2xl border border-border bg-background/55 p-4">
+                <div key={account.id} className="rounded-lg border border-border bg-muted p-4">
                   {editingId === account.id ? (
                     <form className="grid gap-3 lg:grid-cols-[0.85fr_1fr_1fr_1fr_auto] lg:items-end" onSubmit={updateAccount}>
                       <div className="space-y-2">
@@ -265,14 +265,14 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
                             type="button"
                             onClick={() => setShowEditPassword((current) => !current)}
                             aria-label={showEditPassword ? "Hide password" : "Show password"}
-                            className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-orange-500/10 hover:text-orange-300"
+                            className="absolute right-3 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-foreground"
                           >
                             {showEditPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                           </button>
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button disabled={pending} size="sm" className="bg-orange-500 text-black hover:bg-orange-400"><Save className="size-4" />Save</Button>
+                        <Button disabled={pending} size="sm"><Save className="size-4" />Save</Button>
                         <Button type="button" disabled={pending} size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
                       </div>
                     </form>
@@ -281,7 +281,7 @@ export function AdminAccessManager({ initialAccounts, initialError }: { initialA
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-semibold">{account.name}</p>
-                          <Badge variant="outline" className="border-orange-500/30 text-orange-300">{roleLabel(account.role)}</Badge>
+                          <Badge variant="neutral">{roleLabel(account.role)}</Badge>
                         </div>
                         <p className="mt-1 font-mono text-xs text-muted-foreground">{account.username}</p>
                         <p className="mt-1 text-xs text-muted-foreground">Updated {formatDate(account.updatedAt)}</p>

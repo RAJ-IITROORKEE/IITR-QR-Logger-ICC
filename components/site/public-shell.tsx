@@ -5,6 +5,8 @@ export function PublicShell({ children, authenticated = false }: Readonly<{ chil
   return (
     <>
       <SiteNavbar authenticated={authenticated} />
+      {/* Target of the "Skip to content" link rendered in the root layout */}
+      <span id="content" tabIndex={-1} className="sr-only" />
       {children}
       <SiteFooter />
     </>

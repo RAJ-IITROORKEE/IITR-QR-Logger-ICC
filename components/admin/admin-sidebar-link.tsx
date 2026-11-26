@@ -24,10 +24,10 @@ export function AdminSidebarLink({
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-medium transition",
+        "flex items-center gap-3 rounded-md border px-3 py-2.5 text-sm font-medium transition",
         active
-          ? "border-orange-500/45 bg-orange-500/15 text-orange-100"
-          : "border-transparent text-muted-foreground hover:border-orange-500/20 hover:bg-orange-500/10 hover:text-orange-100",
+          ? "border-border bg-accent text-foreground shadow-[inset_2px_0_0_var(--brand)]"
+          : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
         compact && "shrink-0 py-2 text-xs"
       )}
     >

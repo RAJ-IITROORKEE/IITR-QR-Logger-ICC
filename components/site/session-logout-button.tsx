@@ -15,9 +15,9 @@ export function SessionLogoutButton() {
   }
 
   return (
-    <Button type="button" size="sm" variant="outline" onClick={handleLogout} className="h-9 border-orange-500/35 bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 hover:text-orange-400">
+    <Button type="button" size="sm" variant="outline" onClick={handleLogout} className="min-h-9">
       Logout
-      <LogOut className="h-3.5 w-3.5" />
+      <LogOut className="size-3.5" aria-hidden="true" />
     </Button>
   )
 }

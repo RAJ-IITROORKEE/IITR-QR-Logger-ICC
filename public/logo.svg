@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="512" height="512" role="img" aria-label="QR LOGGER ICC">
+  <defs>
+    <linearGradient id="chev" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF8A33"/>
+      <stop offset="1" stop-color="#FF6A00"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#171717" stroke="#2E2E2E" stroke-width="1.5"/>
+  <!-- scan frame -->
+  <g fill="none" stroke="#F2F2F2" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 23V18a6 6 0 0 1 6-6h5"/>
+    <path d="M41 12h5a6 6 0 0 1 6 6v5"/>
+    <path d="M12 41v5a6 6 0 0 0 6 6h5"/>
+    <path d="M41 52h5a6 6 0 0 0 6-6v-5"/>
+  </g>
+  <!-- QR finder pattern -->
+  <rect x="19" y="19" width="11" height="11" rx="2" fill="none" stroke="#FF6A00" stroke-width="2.8"/>
+  <rect x="22.6" y="22.6" width="3.8" height="3.8" rx="0.8" fill="#FF6A00"/>
+  <!-- data modules -->
+  <g fill="#F2F2F2">
+    <rect x="19" y="35" width="4.6" height="4.6" rx="1"/>
+    <rect x="25.4" y="35" width="4.6" height="4.6" rx="1" opacity=".55"/>
+    <rect x="19" y="41.4" width="4.6" height="4.6" rx="1" opacity=".55"/>
+    <rect x="34" y="19" width="4.6" height="4.6" rx="1"/>
+    <rect x="40.4" y="19" width="4.6" height="4.6" rx="1" opacity=".55"/>
+  </g>
+  <!-- slanted IN chevrons (the road-and-chevron motion of the Raahi mark) -->
+  <g fill="none" stroke="url(#chev)" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M33.5 33.5l6 6.7-6 6.7"/>
+    <path d="M40.8 33.5l6 6.7-6 6.7" opacity=".6"/>
+  </g>
+</svg>

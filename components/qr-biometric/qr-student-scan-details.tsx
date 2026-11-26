@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { AlertTriangle, ExternalLink, Eye } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { buildQrStudentPhotoProxySrc } from "@/lib/qr-biometric-student"
@@ -29,11 +30,12 @@ export function getQrDecodedHref(reading: QrBiometricReading): string | null {
 }
 
 export function QrEntryStateBadge({ state }: { state: QrBiometricReading["entryState"] }) {
-  const isIn = state === "IN"
+  const variant = state === "IN" ? "active" : state === "OUT" ? "warning" : "secondary"
   return (
-    <span className={`inline-flex min-w-14 items-center justify-center rounded-full border px-3.5 py-1.5 text-sm font-black tracking-wide shadow-sm ${isIn ? "border-emerald-500/40 bg-emerald-500/18 text-emerald-400 shadow-emerald-950/25" : "border-red-500/40 bg-red-500/18 text-red-400 shadow-red-950/25"}`}>
+    <Badge variant={variant} className="gap-1.5 font-mono">
+      <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-current" />
       {state}
-    </span>
+    </Badge>
   )
 }
 
@@ -66,13 +68,13 @@ export function QrStudentAvatar({ reading, size = "sm" }: { reading: QrBiometric
         width={isLarge ? 96 : 44}
         height={isLarge ? 96 : 44}
         unoptimized
-        className={`${sizeClass} shrink-0 rounded-xl border border-orange-500/25 bg-background object-cover`}
+        className={`${sizeClass} shrink-0 rounded-lg border border-border bg-muted object-cover`}
       />
     )
   }
 
   return (
-    <div className={`${sizeClass} flex shrink-0 items-center justify-center rounded-xl border border-orange-500/25 bg-orange-500/10 text-xs font-bold text-orange-500`}>
+    <div className={`${sizeClass} flex shrink-0 items-center justify-center rounded-lg border border-border bg-muted font-mono text-xs font-semibold text-brand`}>
       {initials}
     </div>
   )
@@ -98,7 +100,7 @@ export function QrStudentFieldGrid({ reading }: { reading: QrBiometricReading })
   if (!info) {
     if (reading.studentInfoStatus === "failed") {
       return (
-        <div className="mt-3 flex items-start gap-2 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-300">
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-warning-border bg-warning-surface p-3 text-xs text-warning">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           <span>Student profile scrape failed: {reading.studentInfoError ?? "Profile data was not readable"}</span>
         </div>
@@ -128,9 +130,9 @@ export function QrStudentFieldGrid({ reading }: { reading: QrBiometricReading })
   return (
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
       {fields.map(([label, value]) => (
-        <div key={label} className="rounded-xl bg-background/70 p-3">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="break-words text-xs font-semibold text-foreground">{value}</p>
+        <div key={label} className="tile p-3">
+          <p className="text-[0.78rem] text-muted-foreground">{label}</p>
+          <p className="break-words font-mono text-[0.86rem] text-foreground">{value}</p>
         </div>
       ))}
     </div>
@@ -143,7 +145,7 @@ export function QrStudentInfoPanel({ reading }: { reading: QrBiometricReading })
   if (!info) return <QrStudentFieldGrid reading={reading} />
 
   return (
-    <div className="mt-4 rounded-2xl border border-orange-500/20 bg-orange-500/5 p-4">
+    <div className="mt-4 tile p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <QrStudentAvatar reading={reading} size="lg" />
@@ -167,12 +169,12 @@ export function QrScanDetailsDialog({ reading }: { reading: QrBiometricReading }
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline" className="border-orange-500/30 bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 hover:text-orange-400">
+        <Button size="sm" variant="outline">
           <Eye className="size-3.5" />
           View
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-6xl border-orange-500/30 bg-card">
+      <DialogContent className="max-w-6xl bg-card">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 text-base">
             QR Student Scan Details
@@ -181,23 +183,23 @@ export function QrScanDetailsDialog({ reading }: { reading: QrBiometricReading }
           <DialogDescription>Full student profile, decoded link, device, and {reading.entryState} timestamp for this QR log.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Device</p>
-            <p className="mt-1 font-mono text-xs font-semibold text-foreground">{reading.deviceId}</p>
+          <div className="tile p-3">
+            <p className="text-[0.78rem] text-muted-foreground">Device</p>
+            <p className="mt-1 font-mono text-[0.86rem] text-foreground">{reading.deviceId}</p>
           </div>
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{stateLabel}</p>
-            <p className="mt-1 font-mono text-xs font-semibold text-foreground">{formatQrFullTimestamp(reading.timestamp)}</p>
+          <div className="tile p-3">
+            <p className="text-[0.78rem] text-muted-foreground">{stateLabel}</p>
+            <p className="mt-1 font-mono text-[0.86rem] text-foreground">{formatQrFullTimestamp(reading.timestamp)}</p>
           </div>
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Characters</p>
-            <p className="mt-1 font-mono text-xs font-semibold text-foreground">{reading.characterCount}</p>
+          <div className="tile p-3">
+            <p className="text-[0.78rem] text-muted-foreground">Characters</p>
+            <p className="mt-1 font-mono text-[0.86rem] text-foreground">{reading.characterCount}</p>
           </div>
         </div>
         <QrStudentInfoPanel reading={reading} />
         {!reading.studentInfo && (
-          <div className="rounded-xl border border-border bg-background/70 p-3">
-            <p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">Decoded QR Link</p>
+          <div className="tile p-3">
+            <p className="mb-2 text-[0.78rem] text-muted-foreground">Decoded QR Link</p>
             <QrDecodedPayloadLink reading={reading} />
           </div>
         )}

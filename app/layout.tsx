@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AppGridBackground } from "@/components/layout/app-grid-background";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -39,12 +38,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        <a href="#content" className="skip-link">
+          Skip to content
+        </a>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <TooltipProvider>
-            <div className="relative min-h-screen flex-1 bg-background">
-              <AppGridBackground />
-              <div className="relative z-10 flex min-h-screen flex-col">{children}</div>
-            </div>
+            <div className="relative flex min-h-screen flex-1 flex-col bg-background">{children}</div>
             <Toaster richColors position="top-center" />
           </TooltipProvider>
         </ThemeProvider>

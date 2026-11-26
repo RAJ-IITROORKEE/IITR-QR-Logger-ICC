@@ -41,11 +41,11 @@ function formatDate(value: string) {
 
 function StatusBadge({ status }: { status: SupportStatus }) {
   const className = status === "resolved"
-    ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
+    ? "border-active-border bg-active-surface text-active"
     : status === "in-progress"
-      ? "border-orange-500/35 bg-orange-500/10 text-orange-300"
-      : "border-sky-500/35 bg-sky-500/10 text-sky-300"
-  return <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{status.replace("_", " ")}</span>
+      ? "border-warning-border bg-warning-surface text-warning"
+      : "border-border bg-muted text-status-neutral"
+  return <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${className}`}>{status.replace("_", " ")}</span>
 }
 
 export function AdminSupportInbox() {
@@ -93,11 +93,11 @@ export function AdminSupportInbox() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-orange-500/20 bg-card/75 p-5 shadow-2xl shadow-orange-950/20">
+      <section className="panel p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-orange-300">Support Inbox</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">User issues and enquiries</h2>
+            <p className="eyebrow">Support Inbox</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">User issues and enquiries</h2>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Review public support submissions, mark active work, resolve requests, or remove stale entries.</p>
           </div>
           <Button onClick={() => { setLoading(true); void fetchData() }} disabled={loading}>
@@ -108,21 +108,21 @@ export function AdminSupportInbox() {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-border bg-card/75 p-5"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Total</p><p className="mt-2 font-mono text-3xl text-orange-100">{data.stats.total}</p></div>
-        <div className="rounded-2xl border border-border bg-card/75 p-5"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">New</p><p className="mt-2 font-mono text-3xl text-sky-300">{data.stats.new}</p></div>
-        <div className="rounded-2xl border border-border bg-card/75 p-5"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">In Progress</p><p className="mt-2 font-mono text-3xl text-orange-300">{data.stats.inProgress}</p></div>
-        <div className="rounded-2xl border border-border bg-card/75 p-5"><p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Resolved</p><p className="mt-2 font-mono text-3xl text-emerald-300">{data.stats.resolved}</p></div>
+        <div className="panel p-5"><p className="text-[0.78rem] text-muted-foreground">Total</p><p className="mt-2 telemetry-value text-brand">{data.stats.total}</p></div>
+        <div className="panel p-5"><p className="text-[0.78rem] text-muted-foreground">New</p><p className="mt-2 telemetry-value text-status-neutral">{data.stats.new}</p></div>
+        <div className="panel p-5"><p className="text-[0.78rem] text-muted-foreground">In Progress</p><p className="mt-2 telemetry-value text-brand">{data.stats.inProgress}</p></div>
+        <div className="panel p-5"><p className="text-[0.78rem] text-muted-foreground">Resolved</p><p className="mt-2 telemetry-value text-active">{data.stats.resolved}</p></div>
       </section>
 
-      <section className="rounded-3xl border border-border bg-card/75">
+      <section className="panel">
         <div className="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3"><Headphones className="h-5 w-5 text-orange-300" /><h3 className="text-lg font-semibold">Requests</h3></div>
+          <div className="flex items-center gap-3"><Headphones className="h-5 w-5 text-brand" /><h3 className="text-lg font-semibold">Requests</h3></div>
           <div className="flex flex-wrap gap-2">
             <label className="relative w-full sm:w-72">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setLoading(true); void fetchData() } }} placeholder="Search support" className="w-full rounded-xl border border-border bg-background/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setLoading(true); void fetchData() } }} placeholder="Search support" className="w-full h-9 rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40" />
             </label>
-            <select value={status} onChange={(event) => { setStatus(event.target.value as SupportStatus | "all"); setPage(1) }} className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm outline-none focus:border-orange-500">
+            <select value={status} onChange={(event) => { setStatus(event.target.value as SupportStatus | "all"); setPage(1) }} className="h-9 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40">
               <option value="all">All</option>
               <option value="new">New</option>
               <option value="in-progress">In progress</option>
@@ -136,7 +136,7 @@ export function AdminSupportInbox() {
           {data.inquiries.length === 0 ? (
             <p className="p-10 text-center text-sm text-muted-foreground">No support requests found.</p>
           ) : data.inquiries.map((inquiry) => (
-            <article key={inquiry.id} className="p-4 hover:bg-muted/20">
+            <article key={inquiry.id} className="p-4 hover:bg-muted/60">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2"><StatusBadge status={inquiry.status} /><span className="font-mono text-xs text-muted-foreground">{formatDate(inquiry.createdAt)}</span></div>
